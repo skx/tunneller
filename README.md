@@ -41,7 +41,7 @@ This is a self-hosted alternative to a system such as `ngrok`.
 
 ## How it works
 
-When a client is launched it creates a web-socket connection to the default remote end-point, `tunneller.steve.fi` by default, and keeps that connection alive.  A name is also sent for that connection.
+When a client is launched it creates a web-socket connection to the default remote end-point, `tunneller.steve.fi`, and keeps that connection alive.  A name is also sent for that connection.
 
 Next, when a request comes in for `foo.tunneller.steve.fi` the server can look for an open web-socket connection with the name `foo`, and route the request through it:
 
@@ -61,13 +61,13 @@ If you prefer you can find binary releases upon our [release page](https://githu
 
 If you're using `go` before 1.11 then the following command should fetch/update `deployr`, and install it upon your system:
 
-     $ go get -u github.com/skx/deployr
+     $ go get -u github.com/skx/tunneller
 
 ### Source installation go  >= 1.12
 
 If you're using a more recent version of `go` (which is _highly_ recommended), you need to clone to a directory which is not present upon your `GOPATH`:
 
-    git clone https://github.com/skx/deployr
+    git clone https://github.com/skx/tunneller
     cd deployr
     go install
 
