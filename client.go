@@ -65,7 +65,8 @@ func main() {
 			fmt.Printf("\tHandshake failed with status %d\n", resp.StatusCode)
 
 			defer resp.Body.Close()
-			body, err := ioutil.ReadAll(resp.Body)
+			var body []byte
+			body, err = ioutil.ReadAll(resp.Body)
 			if err == nil {
 				fmt.Printf("\t%s\n\n", body)
 			}
