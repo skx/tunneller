@@ -104,17 +104,26 @@ func main() {
 			assigned[cid] = conn
 			mutex.Unlock()
 
+			//
 			// Now we're just going to busy-loop.
 			//
-			// Ensure that the new connection handles keep-alives properly.
+			// Ensuring that we keep the client connection alive.
 			//
 			go func() {
-				for {
+				connected := true
+
+				for connected {
 					mutex.Lock()
+
 					fmt.Printf("Sending ping to client ..\n")
-					conn.WriteMessage(websocket.PingMessage, []byte("OK"))
+					err := conn.WriteMessage(websocket.PingMessage, []byte("!"))
+					if err != nil {
+						fmt.Printf("Client gone away - freeing the name '%s'\n", cid)
+						assigned[cid] = nil
+						connected = false
+					}
 					mutex.Unlock()
-					time.Sleep(3 * time.Second)
+					time.Sleep(5 * time.Second)
 				}
 			}()
 		} else {

@@ -90,6 +90,3 @@ Note if you're not using the proxy-modules already you'll need:
 ## Outstanding Bits
 
 * SSL won't be supported.
-
-* Once a name has been used it never becomes available again.
-  * We need to reap closed ws:// connections.
