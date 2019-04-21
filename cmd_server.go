@@ -16,16 +16,6 @@ import (
 )
 
 //
-// We want to make sure that we check the origin of any websocket-connections
-// and bump the size of the buffers.
-//
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  2048,
-	WriteBufferSize: 2048,
-	CheckOrigin:     func(r *http.Request) bool { return true },
-}
-
-//
 // Glue
 //
 type serveCmd struct {
@@ -54,8 +44,212 @@ func (p *serveCmd) Usage() string {
 // Flag setup
 //
 func (p *serveCmd) SetFlags(f *flag.FlagSet) {
-	f.IntVar(&p.bindPort, "port", 3001, "The port to bind upon.")
+	f.IntVar(&p.bindPort, "port", 8080, "The port to bind upon.")
 	f.StringVar(&p.bindHost, "host", "127.0.0.1", "The IP to listen upon.")
+}
+
+//
+// We want to make sure that we check the origin of any websocket-connections
+// and bump the size of the buffers.
+//
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  2048,
+	WriteBufferSize: 2048,
+	CheckOrigin:     func(r *http.Request) bool { return true },
+}
+
+//
+// HTTPHandler is the core of our server.
+//
+// This function is invoked for all accesses.  However it is complicated
+// because it will be invoked in two different roles:
+//
+//   http://foo.tunneller.example.com/blah
+//
+//    -> Route the request to the host connected with name "foo".
+//
+//   ws://tunneller.example.com/foo
+//
+//    -> Associate the name 'foo' with the long-lived web-socket connection
+//
+// We can decide at run-time if we're invoked with a HTTP-connection or
+// a WS:// connection via the `Connection` header.
+//
+func (p *serveCmd) HTTPHandler(w http.ResponseWriter, r *http.Request) {
+
+	//
+	// See if we're upgrading to a websocket connection.
+	//
+	con := r.Header.Get("Connection")
+	if strings.Contains(con, "Upgrade") {
+
+		//
+		// At this point we've got a known-client.
+		//
+		// Record their ID in our connection
+		//
+		// The ID will be client-sent, for now.
+		//
+		cid := r.URL.Path[1:]
+
+		//
+		// Ensure the name isn't already in-use.
+		//
+		p.mutex.Lock()
+		tmp := p.assigned[cid]
+		p.mutex.Unlock()
+
+		if tmp != nil {
+			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprintf(w, "The name you've chosen is already in use.")
+			return
+
+		}
+
+		//
+		// Upgrade, and handle any upgrade-errors.
+		//
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, "Error upgrading the connection to a web-socket %s", err.Error())
+			return
+		}
+		//
+
+		//
+		// Store their name / connection in the map.
+		//
+		p.mutex.Lock()
+		p.assigned[cid] = conn
+		p.mutex.Unlock()
+
+		//
+		// Now we're just going to busy-loop.
+		//
+		// Ensuring that we keep the client connection alive.
+		//
+		go func() {
+			connected := true
+
+			for connected {
+				p.mutex.Lock()
+
+				fmt.Printf("Sending ping to client ..\n")
+				err := conn.WriteMessage(websocket.PingMessage, []byte("!"))
+				if err != nil {
+					fmt.Printf("Client gone away - freeing the name '%s'\n", cid)
+					p.assigned[cid] = nil
+					connected = false
+				}
+				p.mutex.Unlock()
+				time.Sleep(5 * time.Second)
+			}
+		}()
+	} else {
+		//
+		// OK we got an incoming HTTP-request.
+		//
+		// See which vhost the connection was sent to, we assume that the variable
+		// part will be the start of the hostname, which will be split by "."
+		//
+		host := r.Host
+		if strings.Contains(host, ".") {
+			hsts := strings.Split(host, ".")
+			host = hsts[0]
+		}
+
+		//
+		// Find the client to which to route the request.
+		//
+		sock := p.assigned[host]
+		if sock == nil {
+			fmt.Fprintf(w, "The request cannot be made to '%s' as the host is offline!", host)
+			return
+		}
+		//
+		// Dump the request to plain-text
+		//
+		requestDump, err := httputil.DumpRequest(r, true)
+		fmt.Printf("Sending request\n")
+		if err == nil {
+
+			//
+			// Forward it on.
+			//
+			p.mutex.Lock()
+			sock.WriteMessage(websocket.TextMessage, []byte(requestDump))
+			p.mutex.Unlock()
+
+		} else {
+			fmt.Printf("Error converting the incoming request to plain-text: %s\n", err.Error())
+		}
+		fmt.Printf("Sent request\n")
+
+		//
+		// Wait for the response from the client.
+		//
+		for {
+			fmt.Printf("Reading message from the client ..\n")
+			p.mutex.Lock()
+			msgType, msg, err := sock.ReadMessage()
+			p.mutex.Unlock()
+
+			if err != nil {
+				fmt.Printf("Error reading from websocket:%s\n", err.Error())
+				fmt.Fprintf(w, "Error reading from websocket %s", err.Error())
+				return
+			}
+			if msgType == websocket.TextMessage {
+
+				decoded, err := b64.StdEncoding.DecodeString(string(msg))
+				if err != nil {
+					fmt.Printf("Error decoded BASE64 from WS:%s\n", err.Error())
+					fmt.Fprintf(w, "Error decoded BASE64 from WS:%s\n", err.Error())
+					return
+				}
+
+				//
+				// This is a hack.
+				//
+				// The response from the client will be:
+				//
+				//   HTTP 200 OK
+				//   Header: blah
+				//   Date: blah
+				//   [newline]
+				//   <html>
+				//   ..
+				//
+				// i.e. It will contain a full-response, headers, and body.
+				// So we need to use hijacking to return that to the caller.
+				//
+				hj, ok := w.(http.Hijacker)
+				if !ok {
+					http.Error(w, "Webserver doesn't support hijacking", http.StatusInternalServerError)
+					return
+				}
+				conn, bufrw, err := hj.Hijack()
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				// Don't forget to close the connection:
+				defer conn.Close()
+				fmt.Fprintf(bufrw, "%s", decoded)
+				return
+			}
+		}
+
+		//
+		// We shouldn't reach here
+		//
+		//
+		// Send them some text for now.
+		//
+		fmt.Fprintf(w, "Hi there %s, your request was for %s!", host, r.URL.Path[1:])
+		return
+	}
 }
 
 //
@@ -76,186 +270,31 @@ func (p *serveCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{})
 	//
 	// Then we do the right thing, depending on what we have.
 	//
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-
-		//
-		// See if we're upgrading to a websocket connection.
-		//
-		con := r.Header.Get("Connection")
-		if strings.Contains(con, "Upgrade") {
-
-			//
-			// At this point we've got a known-client.
-			//
-			// Record their ID in our connection
-			//
-			// The ID will be client-sent, for now.
-			//
-			cid := r.URL.Path[1:]
-
-			//
-			// Ensure the name isn't already in-use.
-			//
-			p.mutex.Lock()
-			tmp := p.assigned[cid]
-			p.mutex.Unlock()
-
-			if tmp != nil {
-				w.WriteHeader(http.StatusForbidden)
-				fmt.Fprintf(w, "The name you've chosen is already in use.")
-				return
-
-			}
-
-			//
-			// Upgrade, and handle any upgrade-errors.
-			//
-			conn, err := upgrader.Upgrade(w, r, nil)
-			if err != nil {
-				fmt.Fprintf(w, "Error upgrading the connection to a web-socket %s", err.Error())
-				return
-			}
-			//
-
-			//
-			// Store their name / connection in the map.
-			//
-			p.mutex.Lock()
-			p.assigned[cid] = conn
-			p.mutex.Unlock()
-
-			//
-			// Now we're just going to busy-loop.
-			//
-			// Ensuring that we keep the client connection alive.
-			//
-			go func() {
-				connected := true
-
-				for connected {
-					p.mutex.Lock()
-
-					fmt.Printf("Sending ping to client ..\n")
-					err := conn.WriteMessage(websocket.PingMessage, []byte("!"))
-					if err != nil {
-						fmt.Printf("Client gone away - freeing the name '%s'\n", cid)
-						p.assigned[cid] = nil
-						connected = false
-					}
-					p.mutex.Unlock()
-					time.Sleep(5 * time.Second)
-				}
-			}()
-		} else {
-			//
-			// OK we got an incoming HTTP-request.
-			//
-			// See which vhost the connection was sent to, we assume that the variable
-			// part will be the start of the hostname, which will be split by "."
-			//
-			host := r.Host
-			if strings.Contains(host, ".") {
-				hsts := strings.Split(host, ".")
-				host = hsts[0]
-			}
-
-			//
-			// Find the client to which to route the request.
-			//
-			sock := p.assigned[host]
-			if sock == nil {
-				fmt.Fprintf(w, "The request cannot be made to '%s' as the host is offline!", host)
-				return
-			}
-			//
-			// Dump the request to plain-text
-			//
-			requestDump, err := httputil.DumpRequest(r, true)
-			fmt.Printf("Sending request\n")
-			if err == nil {
-
-				//
-				// Forward it on.
-				//
-				p.mutex.Lock()
-				sock.WriteMessage(websocket.TextMessage, []byte(requestDump))
-				p.mutex.Unlock()
-
-			} else {
-				fmt.Printf("Error converting the incoming request to plain-text: %s\n", err.Error())
-			}
-			fmt.Printf("Sent request\n")
-
-			//
-			// Wait for the response from the client.
-			//
-			for {
-				fmt.Printf("Reading message from the client ..\n")
-				p.mutex.Lock()
-				msgType, msg, err := sock.ReadMessage()
-				p.mutex.Unlock()
-
-				if err != nil {
-					fmt.Printf("Error reading from websocket:%s\n", err.Error())
-					fmt.Fprintf(w, "Error reading from websocket %s", err.Error())
-					return
-				}
-				if msgType == websocket.TextMessage {
-
-					decoded, err := b64.StdEncoding.DecodeString(string(msg))
-					if err != nil {
-						fmt.Printf("Error decoded BASE64 from WS:%s\n", err.Error())
-						fmt.Fprintf(w, "Error decoded BASE64 from WS:%s\n", err.Error())
-						return
-					}
-
-					//
-					// This is a hack.
-					//
-					// The response from the client will be:
-					//
-					//   HTTP 200 OK
-					//   Header: blah
-					//   Date: blah
-					//   [newline]
-					//   <html>
-					//   ..
-					//
-					// i.e. It will contain a full-response, headers, and body.
-					// So we need to use hijacking to return that to the caller.
-					//
-					hj, ok := w.(http.Hijacker)
-					if !ok {
-						http.Error(w, "Webserver doesn't support hijacking", http.StatusInternalServerError)
-						return
-					}
-					conn, bufrw, err := hj.Hijack()
-					if err != nil {
-						http.Error(w, err.Error(), http.StatusInternalServerError)
-						return
-					}
-					// Don't forget to close the connection:
-					defer conn.Close()
-					fmt.Fprintf(bufrw, "%s", decoded)
-					return
-				}
-			}
-
-			//
-			// We shouldn't reach here
-			//
-			//
-			// Send them some text for now.
-			//
-			fmt.Fprintf(w, "Hi there %s, your request was for %s!", host, r.URL.Path[1:])
-			return
-		}
-	})
+	http.HandleFunc("/", p.HTTPHandler)
 
 	//
-	// Bind to :8080.  Assume we'll be proxied.
+	// Show where we'll bind
 	//
-	http.ListenAndServe("127.0.0.1:8080", nil)
+	bind := fmt.Sprintf("%s:%d", p.bindHost, p.bindPort)
+	fmt.Printf("Launching the server on http://%s\n", bind)
+
+	//
+	// We want to make sure we handle timeouts effectively by using
+	// a non-default http-server
+	//
+	srv := &http.Server{
+		Addr:         bind,
+		ReadTimeout:  300 * time.Second,
+		WriteTimeout: 300 * time.Second,
+	}
+
+	//
+	// Launch the server.
+	//
+	err := srv.ListenAndServe()
+	if err != nil {
+		fmt.Printf("\nError: %s\n", err.Error())
+	}
 
 	return 0
 }
