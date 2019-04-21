@@ -1,12 +1,12 @@
 //
-// Connect to localhost 8080 and proxy content
-// to http://localhost:32400/web/index.html
+// Client for our self-hosted ngrok alternative.
 //
 
 package main
 
 import (
 	"bytes"
+	"context"
 	b64 "encoding/base64"
 	"flag"
 	"fmt"
@@ -16,43 +16,80 @@ import (
 	"net/url"
 	"sync"
 
+	"github.com/google/subcommands"
 	"github.com/gorilla/websocket"
 )
 
 //
-// We proxy here ..
+// clientCmd is the structure for this sub-command.
 //
-var mutex = &sync.Mutex{}
-
-//
-// Entry point.
-//
-func main() {
+type clientCmd struct {
 
 	//
-	// Setup our command-line arguments
+	// Mutex protects our state.
 	//
-	exposeFlag := flag.String("expose", "", "The host/port to expose to the internet.")
-	tunnelFlag := flag.String("tunnel", "tunneller.steve.fi", "The address of the publicly visible tunnel-host")
-	nameFlag := flag.String("name", "cake", "The name for this connection")
-	flag.Parse()
+	mutex *sync.Mutex
+
+	//
+	// The name we'll access this resource via.
+	//
+	name string
+
+	//
+	// The tunnel end-point
+	//
+	tunnel string
+
+	//
+	// The service to expose.
+	//
+	expose string
+}
+
+//
+// Glue
+//
+func (p *clientCmd) Name() string     { return "client" }
+func (p *clientCmd) Synopsis() string { return "Launch our client." }
+func (p *clientCmd) Usage() string {
+	return `client :
+  Launch the client, exposing a local service to the internet
+`
+}
+
+//
+// Flag setup
+//
+func (p *clientCmd) SetFlags(f *flag.FlagSet) {
+
+	f.StringVar(&p.expose, "expose", "", "The host/port to expose to the internet.")
+	f.StringVar(&p.tunnel, "tunnel", "tunneller.steve.fi", "The address of the publicly visible tunnel-host")
+	f.StringVar(&p.name, "name", "cake", "The name for this connection")
+}
+
+//
+// Entry-point.
+//
+func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
+
+	p.mutex = &sync.Mutex{}
 
 	//
 	// Ensure that we have setup variables
 	//
-	if *exposeFlag == "" {
+	if p.expose == "" {
 		fmt.Printf("You must specify the host:port to expose.\n")
-		return
+		return 1
 	}
-	if *tunnelFlag == "" {
+	if p.tunnel == "" {
 		fmt.Printf("You must specify the URL of the tunnel end-point.\n")
-		return
+		return 1
 	}
 
 	//
 	// These are the details of the tunneller-server
 	//
-	u := url.URL{Scheme: "ws", Host: *tunnelFlag, Path: "/" + *nameFlag}
+	u := url.URL{Scheme: "ws", Host: p.tunnel, Path: "/" + p.name}
 	fmt.Printf("Connecting to %s\n", u.String())
 
 	//
@@ -72,7 +109,7 @@ func main() {
 			}
 		}
 		fmt.Printf("Connection failed: %s", err)
-		return
+		return 1
 	}
 	defer c.Close()
 
@@ -80,7 +117,7 @@ func main() {
 	// Connected now, show instructions
 	//
 	fmt.Printf("Visit http://%s.%s to see the local content from %s\n",
-		*nameFlag, *tunnelFlag, *exposeFlag)
+		p.name, p.tunnel, p.expose)
 
 	// Loop for messages
 	for {
@@ -91,7 +128,7 @@ func main() {
 
 		if err != nil {
 			fmt.Printf("Error reading the message from the socket: %s", err.Error())
-			return
+			return 1
 		}
 
 		if msgType == websocket.PingMessage {
@@ -114,7 +151,7 @@ func main() {
 			// Make the connection to our proxied host.
 			//
 			d := net.Dialer{}
-			con, _ := d.Dial("tcp", *exposeFlag)
+			con, _ := d.Dial("tcp", p.expose)
 			con.Write(message)
 
 			//
