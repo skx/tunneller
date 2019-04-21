@@ -1,3 +1,18 @@
+Table of Contents
+=================
+
+* [tunneller](#tunneller)
+* [Overview](#overview)
+* [How it works](#how-it-works)
+* [Installation](#installation)
+  * [Source Installation go &lt;=  1.11](#source-installation-go---111)
+  * [Source installation go  &gt;= 1.12](#source-installation-go---112)
+  * [Installation Self-Hosted Server](#installation-self-hosted-server)
+* [Cheatsheet](#cheatsheet)
+* [Outstanding Bits](#outstanding-bits)
+* [Github Setup](#github-setup)
+
+
 # tunneller
 
 Tunneller allows you to expose services which are running on `localhost`, or on your local network, to the entire internet.
@@ -37,11 +52,32 @@ Next, when a request comes in for `foo.tunneller.steve.fi` the server can look f
 
 ## Installation
 
-You'll need a working [go](https://golang.org/) compiler to run the code, but compilation should be as simple as:
+There are two ways to install this project from source, which depend on the version of the [go](https://golang.org/) version you're using.
 
-    $ go build .
+If you prefer you can find binary releases upon our [release page](https://github.com/skx/tunneller/releases/)
 
-This will build the client and server, as a single binary.
+
+### Source Installation go <=  1.11
+
+If you're using `go` before 1.11 then the following command should fetch/update `deployr`, and install it upon your system:
+
+     $ go get -u github.com/skx/deployr
+
+### Source installation go  >= 1.12
+
+If you're using a more recent version of `go` (which is _highly_ recommended), you need to clone to a directory which is not present upon your `GOPATH`:
+
+    git clone https://github.com/skx/deployr
+    cd deployr
+    go install
+
+
+If you don't have a golang environment setup you should be able to download a binary for GNU/Linux from [our release page](https://github.com/skx/tunneller/releases).
+
+
+
+
+## Installation Self-Hosted Server
 
 If you wish to host your own central-server things are a little more complex:
 
@@ -91,3 +127,13 @@ Note if you're not using the proxy-modules already you'll need:
 ## Outstanding Bits
 
 * SSL won't be supported.
+
+## Github Setup
+
+This repository is configured to run tests upon every commit, and when
+pull-requests are created/updated.  The testing is carried out via
+[.github/run-tests.sh](.github/run-tests.sh) which is used by the
+[github-action-tester](https://github.com/skx/github-action-tester) action.
+
+Releases are automated in a similar fashion via [.github/build](.github/build),
+and the [github-action-publish-binaries](https://github.com/skx/github-action-publish-binaries) action.
