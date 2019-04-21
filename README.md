@@ -8,7 +8,7 @@ This is very useful for testing webhooks, the generation of static-site compiler
 
 ## Overview
 
-Assuming you have a service providing a HTTP server accessible to the localhost via:
+Assuming you have a service providing a HTTP server accessible to the localhost via a simple URL like this:
 
 * http://localhost:8080/
 
@@ -27,7 +27,7 @@ _That_ location will be accessible to the world, and will route incoming request
 
 ## How it works
 
-When a client is launched it creates a web-socket connection to the default remote end-point, `tunneller.steve.fi` in this case, and keeps that connection alive.  A name is also sent.
+When a client is launched it creates a web-socket connection to the default remote end-point, `tunneller.steve.fi` in this case, and keeps that connection alive.  A name is also sent for that connection.
 
 Next, when a request comes in for `foo.tunneller.steve.fi` the server can look for an open web-socket connection with the name `foo`, and route the request through it:
 
@@ -44,7 +44,7 @@ You'll also need to setup a wildcard DNS record for `*.tunneller.example.com`, p
 
 For Apache2 I used this for the main site:
 
-    <VirtualHost 176.9.183.100:80 [2a01:4f8:151:6083::100]:80>
+    <VirtualHost 176.9.183.100:80>
       ServerName tunneller.steve.fi
       RewriteEngine On
       RewriteCond %{HTTP:Upgrade} =websocket [NC]
@@ -57,7 +57,7 @@ For Apache2 I used this for the main site:
 Then this for the wildcard:
 
     #  HTTP-only.
-    <VirtualHost 176.9.183.100:80 [2a01:4f8:151:6083::100]:80>
+    <VirtualHost 176.9.183.100:80>
        ServerName a.tunneller.steve.fi
        ServerAlias *.tunneller.steve.fi
        RewriteEngine On
