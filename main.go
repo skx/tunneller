@@ -21,7 +21,7 @@ func main() {
 	subcommands.Register(subcommands.FlagsCommand(), "")
 	subcommands.Register(subcommands.CommandsCommand(), "")
 	subcommands.Register(&clientCmd{}, "")
-	subcommands.Register(&serverCmd{}, "")
+	subcommands.Register(&serveCmd{}, "")
 
 	flag.Parse()
 	ctx := context.Background()

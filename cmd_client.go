@@ -121,9 +121,9 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 
 	// Loop for messages
 	for {
-		mutex.Lock()
+		p.mutex.Lock()
 		msgType, message, err := c.ReadMessage()
-		mutex.Unlock()
+		p.mutex.Unlock()
 		fmt.Printf("%v %v %v\n", msgType, message, err)
 
 		if err != nil {
@@ -133,9 +133,9 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 
 		if msgType == websocket.PingMessage {
 			fmt.Printf("Got pong-reply\n")
-			mutex.Lock()
+			p.mutex.Lock()
 			c.WriteMessage(websocket.PongMessage, nil)
-			mutex.Unlock()
+			p.mutex.Unlock()
 
 		}
 		if msgType == websocket.TextMessage {
@@ -164,9 +164,9 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 			// Send it back
 			//
 			safe := b64.StdEncoding.EncodeToString(reply.Bytes())
-			mutex.Lock()
+			p.mutex.Lock()
 			c.WriteMessage(websocket.TextMessage, []byte(safe))
-			mutex.Unlock()
+			p.mutex.Unlock()
 			fmt.Printf("Sent reply ..\n")
 
 		}

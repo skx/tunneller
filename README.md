@@ -10,7 +10,8 @@ This is very useful for testing webhooks, the generation of static-site compiler
 
 Assuming you have a service running within your local network, perhaps something as simple as a HTTP server you could access via http://localhost:8080/ you can expose that to the entire internet by running:
 
-    $ go run client.go -expose localhost:8080 -name=example
+    $ go build .
+    $ ./tunneller client -expose localhost:8080 -name=example
 
 This will output something like this:
 
@@ -38,9 +39,9 @@ Next, when a request comes in for `foo.tunneller.steve.fi` the server can look f
 
 You'll need a working [go](https://golang.org/) compiler to run the code, but compilation should be as simple as:
 
-    $ go build client.go
+    $ go build .
 
-This will build the client, as `./client`.
+This will build the client and server, as a single binary.
 
 If you wish to host your own central-server things are a little more complex:
 
@@ -81,10 +82,10 @@ Note if you're not using the proxy-modules already you'll need:
 ## Cheatsheet
 
 * Start the server
-   go run server.go
+   ./tunneller serve
 
 * Start the client
-   go run client.go -expose localhost:1234 -name=unique
+   ./tunneller client -expose localhost:1234 -name=unique
 
 
 ## Outstanding Bits

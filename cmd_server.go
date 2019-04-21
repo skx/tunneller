@@ -1,14 +1,9 @@
-//
-// Multiplexing websocket / HTTP-server
-//
-// Allows proxying between public and private resources via a series of
-// long-lived websocket connections.
-//
-
 package main
 
 import (
+	"context"
 	b64 "encoding/base64"
+	"flag"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -16,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/subcommands"
 	"github.com/gorilla/websocket"
 )
 
@@ -29,25 +25,49 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
-var mutex = &sync.Mutex{}
+//
+// Glue
+//
+type serveCmd struct {
+	// The host we bind upon
+	bindHost string
 
-// assigned holds a record of IPs that are available/used.
-var assigned map[string]*websocket.Conn
+	// the port we bind upon
+	bindPort int
 
-type connection struct {
-	ws   *websocket.Conn
-	send chan []byte
+	// mutex for safety
+	mutex *sync.Mutex
+
+	// keep track of name/connection pairs
+	assigned map[string]*websocket.Conn
+}
+
+func (p *serveCmd) Name() string     { return "serve" }
+func (p *serveCmd) Synopsis() string { return "Launch the HTTP server." }
+func (p *serveCmd) Usage() string {
+	return `serve [options]:
+  Launch the HTTP server for proxying via our clients
+`
 }
 
 //
-// This is our entry-point, it presents a simple server on 8080.
+// Flag setup
 //
-func main() {
+func (p *serveCmd) SetFlags(f *flag.FlagSet) {
+	f.IntVar(&p.bindPort, "port", 3001, "The port to bind upon.")
+	f.StringVar(&p.bindHost, "host", "127.0.0.1", "The IP to listen upon.")
+}
+
+//
+// Entry-point.
+//
+func (p *serveCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 
 	//
 	// Setup a mapping between connections and handlers.
 	//
-	assigned = make(map[string]*websocket.Conn)
+	p.mutex = &sync.Mutex{}
+	p.assigned = make(map[string]*websocket.Conn)
 
 	//
 	// We present a HTTP-server
@@ -76,9 +96,9 @@ func main() {
 			//
 			// Ensure the name isn't already in-use.
 			//
-			mutex.Lock()
-			tmp := assigned[cid]
-			mutex.Unlock()
+			p.mutex.Lock()
+			tmp := p.assigned[cid]
+			p.mutex.Unlock()
 
 			if tmp != nil {
 				w.WriteHeader(http.StatusForbidden)
@@ -100,9 +120,9 @@ func main() {
 			//
 			// Store their name / connection in the map.
 			//
-			mutex.Lock()
-			assigned[cid] = conn
-			mutex.Unlock()
+			p.mutex.Lock()
+			p.assigned[cid] = conn
+			p.mutex.Unlock()
 
 			//
 			// Now we're just going to busy-loop.
@@ -113,16 +133,16 @@ func main() {
 				connected := true
 
 				for connected {
-					mutex.Lock()
+					p.mutex.Lock()
 
 					fmt.Printf("Sending ping to client ..\n")
 					err := conn.WriteMessage(websocket.PingMessage, []byte("!"))
 					if err != nil {
 						fmt.Printf("Client gone away - freeing the name '%s'\n", cid)
-						assigned[cid] = nil
+						p.assigned[cid] = nil
 						connected = false
 					}
-					mutex.Unlock()
+					p.mutex.Unlock()
 					time.Sleep(5 * time.Second)
 				}
 			}()
@@ -142,7 +162,7 @@ func main() {
 			//
 			// Find the client to which to route the request.
 			//
-			sock := assigned[host]
+			sock := p.assigned[host]
 			if sock == nil {
 				fmt.Fprintf(w, "The request cannot be made to '%s' as the host is offline!", host)
 				return
@@ -157,9 +177,9 @@ func main() {
 				//
 				// Forward it on.
 				//
-				mutex.Lock()
+				p.mutex.Lock()
 				sock.WriteMessage(websocket.TextMessage, []byte(requestDump))
-				mutex.Unlock()
+				p.mutex.Unlock()
 
 			} else {
 				fmt.Printf("Error converting the incoming request to plain-text: %s\n", err.Error())
@@ -171,9 +191,9 @@ func main() {
 			//
 			for {
 				fmt.Printf("Reading message from the client ..\n")
-				mutex.Lock()
+				p.mutex.Lock()
 				msgType, msg, err := sock.ReadMessage()
-				mutex.Unlock()
+				p.mutex.Unlock()
 
 				if err != nil {
 					fmt.Printf("Error reading from websocket:%s\n", err.Error())
@@ -236,4 +256,6 @@ func main() {
 	// Bind to :8080.  Assume we'll be proxied.
 	//
 	http.ListenAndServe("127.0.0.1:8080", nil)
+
+	return 0
 }
