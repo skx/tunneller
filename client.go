@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/url"
 	"sync"
@@ -61,9 +62,15 @@ func main() {
 	if err != nil {
 
 		if err == websocket.ErrBadHandshake {
-			fmt.Printf("Handshake failed with status %d - %v\n", resp.StatusCode, resp)
+			fmt.Printf("\tHandshake failed with status %d\n", resp.StatusCode)
+
+			defer resp.Body.Close()
+			body, err := ioutil.ReadAll(resp.Body)
+			if err == nil {
+				fmt.Printf("\t%s\n\n", body)
+			}
 		}
-		fmt.Printf("dial:%s", err)
+		fmt.Printf("Connection failed: %s", err)
 		return
 	}
 	defer c.Close()

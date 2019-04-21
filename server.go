@@ -65,15 +65,6 @@ func main() {
 		if strings.Contains(con, "Upgrade") {
 
 			//
-			// Upgrade, and handle errors.
-			//
-			conn, err := upgrader.Upgrade(w, r, nil)
-			if err != nil {
-				fmt.Fprintf(w, "Error upgrading")
-				return
-			}
-
-			//
 			// At this point we've got a known-client.
 			//
 			// Record their ID in our connection
@@ -83,13 +74,36 @@ func main() {
 			cid := r.URL.Path[1:]
 
 			//
+			// Ensure the name isn't already in-use.
+			//
+			mutex.Lock()
+			tmp := assigned[cid]
+			mutex.Unlock()
+
+			if tmp != nil {
+				w.WriteHeader(http.StatusForbidden)
+				fmt.Fprintf(w, "The name you've chosen is already in use.")
+				return
+
+			}
+
+			//
+			// Upgrade, and handle any upgrade-errors.
+			//
+			conn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				fmt.Fprintf(w, "Error upgrading the connection to a web-socket %s", err.Error())
+				return
+			}
+			//
+
+			//
 			// Store their name / connection in the map.
 			//
 			mutex.Lock()
 			assigned[cid] = conn
 			mutex.Unlock()
 
-			//
 			// Now we're just going to busy-loop.
 			//
 			// Ensure that the new connection handles keep-alives properly.
@@ -97,7 +111,7 @@ func main() {
 			go func() {
 				for {
 					mutex.Lock()
-					fmt.Printf("Sent ping to client ..\n")
+					fmt.Printf("Sending ping to client ..\n")
 					conn.WriteMessage(websocket.PingMessage, []byte("OK"))
 					mutex.Unlock()
 					time.Sleep(3 * time.Second)
@@ -150,7 +164,6 @@ func main() {
 				fmt.Printf("Reading message from the client ..\n")
 				mutex.Lock()
 				msgType, msg, err := sock.ReadMessage()
-				fmt.Printf("READ:%v %v %v\n", msgType, msg, err)
 				mutex.Unlock()
 
 				if err != nil {
@@ -167,9 +180,24 @@ func main() {
 						return
 					}
 
+					//
+					// This is a hack.
+					//
+					// The response from the client will be:
+					//
+					//   HTTP 200 OK
+					//   Header: blah
+					//   Date: blah
+					//   [newline]
+					//   <html>
+					//   ..
+					//
+					// i.e. It will contain a full-response, headers, and body.
+					// So we need to use hijacking to return that to the caller.
+					//
 					hj, ok := w.(http.Hijacker)
 					if !ok {
-						http.Error(w, "webserver doesn't support hijacking", http.StatusInternalServerError)
+						http.Error(w, "Webserver doesn't support hijacking", http.StatusInternalServerError)
 						return
 					}
 					conn, bufrw, err := hj.Hijack()
@@ -179,8 +207,6 @@ func main() {
 					}
 					// Don't forget to close the connection:
 					defer conn.Close()
-
-					fmt.Printf("Routed reply:%s\n", decoded)
 					fmt.Fprintf(bufrw, "%s", decoded)
 					return
 				}
@@ -198,7 +224,7 @@ func main() {
 	})
 
 	//
-	// Bind to 8080
+	// Bind to :8080.  Assume we'll be proxied.
 	//
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe("127.0.0.1:8080", nil)
 }
