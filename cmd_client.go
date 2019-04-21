@@ -124,7 +124,6 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 		p.mutex.Lock()
 		msgType, message, err := c.ReadMessage()
 		p.mutex.Unlock()
-		fmt.Printf("%v %v %v\n", msgType, message, err)
 
 		if err != nil {
 			fmt.Printf("Error reading the message from the socket: %s", err.Error())
@@ -151,7 +150,23 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 			// Make the connection to our proxied host.
 			//
 			d := net.Dialer{}
-			con, _ := d.Dial("tcp", p.expose)
+			con, err := d.Dial("tcp", p.expose)
+			if err != nil {
+				//
+				// Connection refused talking to the host
+				//
+				res := `HTTP 200 OK
+Connection: close
+
+Remote server was unreachable
+`
+				safe := b64.StdEncoding.EncodeToString([]byte(res))
+
+				p.mutex.Lock()
+				c.WriteMessage(websocket.TextMessage, []byte(safe))
+				p.mutex.Unlock()
+				continue
+			}
 			con.Write(message)
 
 			//
