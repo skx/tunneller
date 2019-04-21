@@ -8,7 +8,6 @@ Table of Contents
   * [Source Installation go &lt;=  1.11](#source-installation-go---111)
   * [Source installation go  &gt;= 1.12](#source-installation-go---112)
   * [Installation Self-Hosted Server](#installation-self-hosted-server)
-* [Cheatsheet](#cheatsheet)
 * [Outstanding Bits](#outstanding-bits)
 * [Github Setup](#github-setup)
 
@@ -25,8 +24,7 @@ This is very useful for testing webhooks, the generation of static-site compiler
 
 Assuming you have a service running within your local network, perhaps something as simple as a HTTP server you could access via http://localhost:8080/ you can expose that to the entire internet by running:
 
-    $ go build .
-    $ ./tunneller client -expose localhost:8080 -name=example
+    $ tunneller client -expose localhost:8080 -name=example
 
 This will output something like this:
 
@@ -54,12 +52,12 @@ Next, when a request comes in for `foo.tunneller.steve.fi` the server can look f
 
 There are two ways to install this project from source, which depend on the version of the [go](https://golang.org/) version you're using.
 
-If you prefer you can find binary releases upon our [release page](https://github.com/skx/tunneller/releases/)
+> **NOTE**: If you prefer you can find binary releases upon our [release page](https://github.com/skx/tunneller/releases/)
 
 
 ### Source Installation go <=  1.11
 
-If you're using `go` before 1.11 then the following command should fetch/update `deployr`, and install it upon your system:
+If you're using `go` before 1.11 then the following command should fetch/update `tunneller`, and install it upon your system:
 
      $ go get -u github.com/skx/tunneller
 
@@ -81,7 +79,7 @@ If you don't have a golang environment setup you should be able to download a bi
 
 If you wish to host your own central-server things are a little more complex:
 
-* You'll need to create a name in DNS `tunneller.example.com`
+* You'll need to create a DNS-entry: `tunneller.example.com`
 * You'll also need to setup a __wildcard__ DNS entry for `*.tunneller.example.com` to point to the same host.
 * Finally you'll need to setup nginx/apache to proxy to the server, which will bind to 127.0.0.1:8080 by default.
 
@@ -115,18 +113,10 @@ Note if you're not using the proxy-modules already you'll need:
 
 
 
-## Cheatsheet
-
-* Start the server
-   ./tunneller serve
-
-* Start the client
-   ./tunneller client -expose localhost:1234 -name=unique
-
-
 ## Outstanding Bits
 
 * SSL won't be supported.
+
 
 ## Github Setup
 
