@@ -8,11 +8,7 @@ This is very useful for testing webhooks, the generation of static-site compiler
 
 ## Overview
 
-Assuming you have a service providing a HTTP server accessible to the localhost via a simple URL like this:
-
-* http://localhost:8080/
-
-You can expose that to the entire internet by running:
+Assuming you have a service running within your local network, perhaps something as simple as a HTTP server you could access via http://localhost:8080/ you can expose that to the entire internet by running:
 
     $ go run client.go -expose localhost:8080 -name=example
 
@@ -22,12 +18,14 @@ This will output something like this:
     Visit http://example.tunneller.steve.fi/ to see your content
 
 
-_That_ location will be accessible to the world, and will route incoming requests to your local server!
+The location listed will now be publicly visible to all remote hosts.  As the name implies there is a central-host involved which is in charge of routing/proxying to your local network - in this case that central host is `tunneller.steve.fi`, but the important thing is that you can run your own instance of that server.
+
+This is a self-hosted alternative to a system such as `ngrok`.
 
 
 ## How it works
 
-When a client is launched it creates a web-socket connection to the default remote end-point, `tunneller.steve.fi` in this case, and keeps that connection alive.  A name is also sent for that connection.
+When a client is launched it creates a web-socket connection to the default remote end-point, `tunneller.steve.fi` by default, and keeps that connection alive.  A name is also sent for that connection.
 
 Next, when a request comes in for `foo.tunneller.steve.fi` the server can look for an open web-socket connection with the name `foo`, and route the request through it:
 
@@ -38,9 +36,17 @@ Next, when a request comes in for `foo.tunneller.steve.fi` the server can look f
 
 ## Installation
 
-The client will connect to `tunneller.example.com`, so you need to point that at the (publicly accessible) host running the server.
+You'll need a working [go](https://golang.org/) compiler to run the code, but compilation should be as simple as:
 
-You'll also need to setup a wildcard DNS record for `*.tunneller.example.com`, pointing to the same host.
+    $ go build client.go
+
+This will build the client, as `./client`.
+
+If you wish to host your own central-server things are a little more complex:
+
+* You'll need to create a name in DNS `tunneller.example.com`
+* You'll also need to setup a __wildcard__ DNS entry for `*.tunneller.example.com` to point to the same host.
+* Finally you'll need to setup nginx/apache to proxy to the server, which will bind to 127.0.0.1:8080 by default.
 
 For Apache2 I used this for the main site:
 
@@ -64,7 +70,7 @@ Then this for the wildcard:
        Use Proxy 8080
     </VirtualHost>
 
-Note:
+Note if you're not using the proxy-modules already you'll need:
 
     a2enmod proxy
     a2enmod proxy_http
@@ -85,5 +91,5 @@ Note:
 
 * SSL won't be supported.
 
-* The client chooses the name, we should ensure it is free first.
-  * Or let the server chose it.
+* Once a name has been used it never becomes available again.
+  * We need to reap closed ws:// connections.
