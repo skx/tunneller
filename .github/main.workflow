@@ -33,6 +33,6 @@ action "Test" {
 ##
 action "Upload" {
   uses = "skx/github-action-publish-binaries@master"
-  args = "deployr-*"
+  args = "tunneller-*"
   secrets = ["GITHUB_TOKEN"]
 }
