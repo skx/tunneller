@@ -8,7 +8,6 @@ Table of Contents
   * [Source Installation go &lt;=  1.11](#source-installation-go---111)
   * [Source installation go  &gt;= 1.12](#source-installation-go---112)
   * [Installation Self-Hosted Server](#installation-self-hosted-server)
-* [Outstanding Bits](#outstanding-bits)
 * [Github Setup](#github-setup)
 
 
@@ -22,7 +21,7 @@ This is very useful for testing webhooks, the generation of static-site compiler
 
 ## Overview
 
-Assuming you have a service running within your local network, perhaps something as simple as a HTTP server you could access via http://localhost:8080/ you can expose that to the entire internet by running:
+Assuming you have a service running within your local network, perhaps a HTTP server you could access via http://localhost:8080/, you can expose that to the entire internet by running:
 
     $ tunneller client -expose localhost:8080 -name=example
 
@@ -79,7 +78,7 @@ If you don't have a golang environment setup you should be able to download a bi
 
 If you wish to host your own central-server things are a little more complex:
 
-* You'll need to create a DNS-entry: `tunneller.example.com`
+* You'll need to create a DNS-entry `tunneller.example.com`
 * You'll also need to setup a __wildcard__ DNS entry for `*.tunneller.example.com` to point to the same host.
 * Finally you'll need to setup nginx/apache to proxy to the server, which will bind to 127.0.0.1:8080 by default.
 
@@ -111,11 +110,9 @@ Note if you're not using the proxy-modules already you'll need:
     a2enmod proxy_http
     a2enmod proxy_wstunnel
 
-
-
-## Outstanding Bits
-
-* SSL won't be supported.
+Note that if you want to use SSL you'll need to configure that in the
+Apache/nginx layer too.  Of course since we need to use a wildcard DNS-name
+you'll need to use a DNS-challenge, if you're using Let's Encrypt.
 
 
 ## Github Setup
