@@ -144,7 +144,7 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 			//
 			// Show it
 			//
-			fmt.Printf("Incoming Request\n----%s\n---\n", message)
+			fmt.Printf("Received incoming request:\n%s\n", message)
 
 			//
 			// Make the connection to our proxied host.
@@ -163,7 +163,10 @@ Remote server was unreachable
 				safe := b64.StdEncoding.EncodeToString([]byte(res))
 
 				p.mutex.Lock()
-				c.WriteMessage(websocket.TextMessage, []byte(safe))
+				err = c.WriteMessage(websocket.TextMessage, []byte(safe))
+				if err != nil {
+					fmt.Printf("Error writing our error message to the socket:%s\n", err.Error())
+				}
 				p.mutex.Unlock()
 				continue
 			}
@@ -180,10 +183,13 @@ Remote server was unreachable
 			//
 			safe := b64.StdEncoding.EncodeToString(reply.Bytes())
 			p.mutex.Lock()
-			c.WriteMessage(websocket.TextMessage, []byte(safe))
+			err = c.WriteMessage(websocket.TextMessage, []byte(safe))
+			if err != nil {
+				fmt.Printf("Error writing our response to the socket:%s\n", err.Error())
+			}
+
 			p.mutex.Unlock()
 			fmt.Printf("Sent reply ..\n")
-
 		}
 	}
 }
