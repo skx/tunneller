@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/subcommands"
 	"github.com/gorilla/websocket"
+	uuid "github.com/satori/go.uuid"
 )
 
 //
@@ -46,10 +47,6 @@ type clientCmd struct {
 	expose string
 }
 
-//
-// Glue for sub-command support
-//
-
 // Name returns the name of this sub-command.
 func (p *clientCmd) Name() string { return "client" }
 
@@ -68,7 +65,7 @@ func (p *clientCmd) SetFlags(f *flag.FlagSet) {
 
 	f.StringVar(&p.expose, "expose", "", "The host/port to expose to the internet.")
 	f.StringVar(&p.tunnel, "tunnel", "tunneller.steve.fi", "The address of the publicly visible tunnel-host")
-	f.StringVar(&p.name, "name", "cake", "The name for this connection")
+	f.StringVar(&p.name, "name", "", "The name for this connection")
 }
 
 // Execute is the entry-point to this sub-command.
@@ -86,6 +83,11 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	if p.tunnel == "" {
 		fmt.Printf("You must specify the URL of the tunnel end-point.\n")
 		return 1
+	}
+
+	if p.name == "" {
+		tmp := uuid.Must(uuid.NewV4())
+		p.name = tmp.String()
 	}
 
 	//
