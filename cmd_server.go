@@ -128,8 +128,9 @@ func (p *serveCmd) HTTPHandler_HTTP(w http.ResponseWriter, r *http.Request) {
 	// Dump the request to plain-text
 	//
 	requestDump, err := httputil.DumpRequest(r, true)
-	fmt.Printf("Sending request to remote half of the tunnel\n")
+	fmt.Printf("Sending request to remote name %s\n", host)
 	if err != nil {
+		fmt.Fprintf(w, "Error converting the incoming request to plain-text: %s\n", err.Error())
 		fmt.Printf("Error converting the incoming request to plain-text: %s\n", err.Error())
 		return
 	}
@@ -237,7 +238,6 @@ func (p *serveCmd) HTTPHandler_WS(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "Error upgrading the connection to a web-socket %s", err.Error())
 		return
 	}
-	//
 
 	//
 	// Store their name / connection in the map.
@@ -263,6 +263,7 @@ func (p *serveCmd) HTTPHandler_WS(w http.ResponseWriter, r *http.Request) {
 				fmt.Printf("Client gone away - freeing the name '%s'\n", cid)
 				p.assigned[cid] = nil
 				connected = false
+				continue
 			}
 			p.mutex.Unlock()
 			time.Sleep(5 * time.Second)
@@ -276,10 +277,11 @@ func (p *serveCmd) HTTPHandler_WS(w http.ResponseWriter, r *http.Request) {
 func (p *serveCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 
 	//
-	// Setup a mapping between connections and handlers.
+	// Setup a mapping between connections and handlers, and ensure
+	// that our mutex is ready.
 	//
-	p.mutex = &sync.Mutex{}
 	p.assigned = make(map[string]*websocket.Conn)
+	p.mutex = &sync.Mutex{}
 
 	//
 	// We present a HTTP-server
