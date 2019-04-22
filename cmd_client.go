@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"context"
 	b64 "encoding/base64"
 	"flag"
@@ -45,6 +46,16 @@ type clientCmd struct {
 	// The service to expose.
 	//
 	expose string
+
+	//
+	// Use wss end-point
+	//
+	tls bool
+
+	//
+	// Allow insecure TLS connection (for self signed certs, for example)
+	//
+	insecure bool
 }
 
 // Name returns the name of this sub-command.
@@ -66,6 +77,8 @@ func (p *clientCmd) SetFlags(f *flag.FlagSet) {
 	f.StringVar(&p.expose, "expose", "", "The host/port to expose to the internet.")
 	f.StringVar(&p.tunnel, "tunnel", "tunneller.steve.fi", "The address of the publicly visible tunnel-host")
 	f.StringVar(&p.name, "name", "", "The name for this connection")
+	f.BoolVar(&p.tls, "tls", false, "Use TLS protected endpoint (wss)")
+	f.BoolVar(&p.insecure, "insecure", false, "Skip remote certificate validation (insecure!)")
 }
 
 // Execute is the entry-point to this sub-command.
@@ -86,20 +99,30 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	}
 
 	if p.name == "" {
-		tmp := uuid.Must(uuid.NewV4())
+		tmp := uuid.Must(uuid.NewV4(), nil)
 		p.name = tmp.String()
 	}
 
+	var urlScheme = "ws"
+	if p.tls == true {
+		urlScheme = "wss"
+	}
 	//
 	// These are the details of the tunneller-server
 	//
-	u := url.URL{Scheme: "ws", Host: p.tunnel, Path: "/" + p.name}
+	u := url.URL{Scheme: urlScheme, Host: p.tunnel, Path: "/" + p.name}
 	fmt.Printf("Connecting to %s\n", u.String())
 
 	//
 	// connect to it
 	//
-	c, resp, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	tls_config := tls.Config{InsecureSkipVerify: p.insecure}
+	
+	ws_dial := websocket.Dialer{
+		TLSClientConfig: &tls_config,
+	}
+	
+	c, resp, err := ws_dial.Dial(u.String(), nil)
 	if err != nil {
 
 		if err == websocket.ErrBadHandshake {
