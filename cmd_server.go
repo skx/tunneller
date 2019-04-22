@@ -21,7 +21,7 @@ import (
 //
 type connection struct {
 	// mutex for safety
-	mutex *sync.Mutex
+	mutex *sync.RWMutex
 
 	// the socket to use to talk to the remote peer.
 	socket *websocket.Conn
@@ -38,7 +38,7 @@ type serveCmd struct {
 	bindPort int
 
 	// mutex for safety
-	assigned_mutex *sync.Mutex
+	assigned_mutex *sync.RWMutex
 
 	// keep track of name/connection pairs
 	assigned map[string]*connection
@@ -94,16 +94,8 @@ func (p *serveCmd) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	//
 	con := r.Header.Get("Connection")
 	if strings.Contains(con, "Upgrade") {
-
-		//
-		// OK the request is for a web-socket.
-		//
 		p.HTTPHandler_WS(w, r)
 	} else {
-
-		//
-		// Now we've just got a plain HTTP-request.
-		//
 		p.HTTPHandler_HTTP(w, r)
 	}
 }
@@ -130,7 +122,9 @@ func (p *serveCmd) HTTPHandler_HTTP(w http.ResponseWriter, r *http.Request) {
 	//
 	// Find the client to which to route the request.
 	//
+	p.assigned_mutex.Lock()
 	sock := p.assigned[host]
+	p.assigned_mutex.Unlock()
 	if sock == nil {
 		fmt.Fprintf(w, "The request cannot be made to '%s' as the host is offline!", host)
 		return
@@ -163,7 +157,9 @@ func (p *serveCmd) HTTPHandler_HTTP(w http.ResponseWriter, r *http.Request) {
 	//
 	// Wait for the response from the client.
 	//
-	for {
+	response := ""
+
+	for len(response) == 0 {
 		fmt.Printf("Awaiting a reply ..\n")
 
 		sock.mutex.Lock()
@@ -179,45 +175,49 @@ func (p *serveCmd) HTTPHandler_HTTP(w http.ResponseWriter, r *http.Request) {
 		if msgType == websocket.TextMessage {
 			fmt.Printf("\tReply received.\n")
 
-			decoded, err := b64.StdEncoding.DecodeString(string(msg))
+			raw, err := b64.StdEncoding.DecodeString(string(msg))
 			if err != nil {
-				fmt.Printf("Error decoded BASE64 from WS:%s\n", err.Error())
-				fmt.Fprintf(w, "Error decoded BASE64 from WS:%s\n", err.Error())
+				fmt.Printf("Error decoding BASE64 from WS:%s\n", err.Error())
+				fmt.Fprintf(w, "Error decoding BASE64 from WS:%s\n", err.Error())
 				return
 			}
 
-			//
-			// This is a hack.
-			//
-			// The response from the client will be:
-			//
-			//   HTTP 200 OK
-			//   Header: blah
-			//   Date: blah
-			//   [newline]
-			//   <html>
-			//   ..
-			//
-			// i.e. It will contain a full-response, headers, and body.
-			// So we need to use hijacking to return that to the caller.
-			//
-			hj, ok := w.(http.Hijacker)
-			if !ok {
-				http.Error(w, "Webserver doesn't support hijacking", http.StatusInternalServerError)
-				fmt.Printf("Webserver doesn't support hijacking")
-				return
-			}
-			conn, bufrw, err := hj.Hijack()
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				fmt.Printf("Error running hijack:%s", err.Error())
-				return
-			}
-			// Don't forget to close the connection:
-			defer conn.Close()
-			fmt.Fprintf(bufrw, "%s", decoded)
+			response = string(raw)
 		}
 	}
+
+	//
+	// This is a hack.
+	//
+	// The response from the client will be:
+	//
+	//   HTTP 200 OK
+	//   Header: blah
+	//   Date: blah
+	//   [newline]
+	//   <html>
+	//   ..
+	//
+	// i.e. It will contain a full-response, headers, and body.
+	// So we need to use hijacking to return that to the caller.
+	//
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "Webserver doesn't support hijacking", http.StatusInternalServerError)
+		fmt.Printf("Webserver doesn't support hijacking")
+		return
+	}
+	conn, bufrw, err := hj.Hijack()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		fmt.Printf("Error running hijack:%s", err.Error())
+		return
+	}
+	// Don't forget to close the connection:
+	fmt.Fprintf(bufrw, "%s", response)
+	bufrw.Flush()
+	conn.Close()
+
 }
 
 //
@@ -265,7 +265,7 @@ func (p *serveCmd) HTTPHandler_WS(w http.ResponseWriter, r *http.Request) {
 	// Store their name / connection in the map.
 	//
 	p.assigned_mutex.Lock()
-	p.assigned[cid] = &connection{mutex: &sync.Mutex{}, socket: conn}
+	p.assigned[cid] = &connection{mutex: &sync.RWMutex{}, socket: conn}
 	p.assigned_mutex.Unlock()
 
 	//
@@ -333,7 +333,7 @@ func (p *serveCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{})
 	// that our mutex is ready.
 	//
 	p.assigned = make(map[string]*connection)
-	p.assigned_mutex = &sync.Mutex{}
+	p.assigned_mutex = &sync.RWMutex{}
 
 	//
 	// We present a HTTP-server
