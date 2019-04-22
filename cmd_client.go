@@ -47,19 +47,23 @@ type clientCmd struct {
 }
 
 //
-// Glue
+// Glue for sub-command support
 //
-func (p *clientCmd) Name() string     { return "client" }
+
+// Name returns the name of this sub-command.
+func (p *clientCmd) Name() string { return "client" }
+
+// Synopsis returns the brief description of this sub-command
 func (p *clientCmd) Synopsis() string { return "Launch our client." }
+
+// Usage returns details of this sub-command.
 func (p *clientCmd) Usage() string {
 	return `client :
   Launch the client, exposing a local service to the internet
 `
 }
 
-//
-// Flag setup
-//
+// SetFlags configures the flags this sub-command accepts.
 func (p *clientCmd) SetFlags(f *flag.FlagSet) {
 
 	f.StringVar(&p.expose, "expose", "", "The host/port to expose to the internet.")
@@ -67,9 +71,7 @@ func (p *clientCmd) SetFlags(f *flag.FlagSet) {
 	f.StringVar(&p.name, "name", "cake", "The name for this connection")
 }
 
-//
-// Entry-point.
-//
+// Execute is the entry-point to this sub-command.
 func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 
 	p.mutex = &sync.Mutex{}

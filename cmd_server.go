@@ -28,7 +28,7 @@ type connection struct {
 }
 
 //
-// Glue
+// serveCmd is the structure for this sub-command.
 //
 type serveCmd struct {
 	// The host we bind upon
@@ -44,17 +44,20 @@ type serveCmd struct {
 	assigned map[string]*connection
 }
 
-func (p *serveCmd) Name() string     { return "serve" }
+// Name returns the name of this sub-command.
+func (p *serveCmd) Name() string { return "serve" }
+
+// Synopsis returns the brief description of this sub-command
 func (p *serveCmd) Synopsis() string { return "Launch the HTTP server." }
+
+// Usage returns details of this sub-command.
 func (p *serveCmd) Usage() string {
 	return `serve [options]:
   Launch the HTTP server for proxying via our clients
 `
 }
 
-//
-// Flag setup
-//
+// SetFlags configures the flags this sub-command accepts.
 func (p *serveCmd) SetFlags(f *flag.FlagSet) {
 	f.IntVar(&p.bindPort, "port", 8080, "The port to bind upon.")
 	f.StringVar(&p.bindHost, "host", "127.0.0.1", "The IP to listen upon.")
@@ -324,9 +327,7 @@ func (p *serveCmd) HTTPHandlerWS(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
-//
-// Entry-point.
-//
+// Execute is the entry-point to this sub-command.
 func (p *serveCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 
 	//
@@ -337,11 +338,8 @@ func (p *serveCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{})
 	p.assignedMutex = &sync.RWMutex{}
 
 	//
-	// We present a HTTP-server
-	//
-	// But we accept EITHER HTTP or Websockets
-	//
-	// Then we do the right thing, depending on what we have.
+	// We present a HTTP-server, and we handle all incoming
+	// requests (both in terms of path and method).
 	//
 	http.HandleFunc("/", p.HTTPHandler)
 
