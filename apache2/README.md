@@ -63,6 +63,35 @@ production:
         ProxyBadHeader ignore
     </VirtualHost>
 
+## Encrypted websocket tunnel
+
+If you want to use a TLS encrypted tunnel just change the configuration to listen on 443 and 
+mod_ssl as usual:
+
+
+    #
+    # This is the bare-tunnel domain.
+    #
+    # Accesses to this will be websockets, so we need to handle
+    # that by using `wss:/`
+    #
+    <VirtualHost 176.9.183.100:443>
+        ServerName tunneller.steve.fi
+        
+        SSLEngine on
+        SSLCertificateFile      /path/to/your/certificate.pem
+        SSLCertificateKeyFile   /path/to/your/key.pem
+        SSLCertificateChainFile /path/to/your/chain.pem
+
+        RewriteEngine On
+        RewriteCond %{HTTP:Upgrade} =websocket [NC]
+        RewriteRule /(.*)           ws://localhost:8080/$1 [P,L]
+        RewriteCond %{HTTP:Upgrade} !=websocket [NC]
+        RewriteRule /(.*)           http://localhost:8080/$1 [P,L]
+        [...]
+        # Same VirtualHost configuration as example above
+
+Obviously you can encrypt also the public (*.tunneller.steve.fi) part with using HTTPS
 
 ## Modules
 
