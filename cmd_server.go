@@ -38,7 +38,7 @@ type serveCmd struct {
 	bindPort int
 
 	// mutex for safety
-	assigned_mutex *sync.RWMutex
+	assignedMutex *sync.RWMutex
 
 	// keep track of name/connection pairs
 	assigned map[string]*connection
@@ -94,17 +94,17 @@ func (p *serveCmd) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	//
 	con := r.Header.Get("Connection")
 	if strings.Contains(con, "Upgrade") {
-		p.HTTPHandler_WS(w, r)
+		p.HTTPHandlerWS(w, r)
 	} else {
-		p.HTTPHandler_HTTP(w, r)
+		p.HTTPHandlerHTTP(w, r)
 	}
 }
 
 //
-// HTTPHandler_HTTP is invoked to forward an incoming HTTP-request
+// HTTPHandlerHTTP is invoked to forward an incoming HTTP-request
 // to the remote host which is tunnelling it.
 //
-func (p *serveCmd) HTTPHandler_HTTP(w http.ResponseWriter, r *http.Request) {
+func (p *serveCmd) HTTPHandlerHTTP(w http.ResponseWriter, r *http.Request) {
 
 	//
 	// See which vhost the connection was sent to, we assume that
@@ -122,9 +122,9 @@ func (p *serveCmd) HTTPHandler_HTTP(w http.ResponseWriter, r *http.Request) {
 	//
 	// Find the client to which to route the request.
 	//
-	p.assigned_mutex.Lock()
+	p.assignedMutex.Lock()
 	sock := p.assigned[host]
-	p.assigned_mutex.Unlock()
+	p.assignedMutex.Unlock()
 	if sock == nil {
 		fmt.Fprintf(w, "The request cannot be made to '%s' as the host is offline!", host)
 		return
@@ -163,19 +163,20 @@ func (p *serveCmd) HTTPHandler_HTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("Awaiting a reply ..\n")
 
 		sock.mutex.Lock()
-		msgType, msg, err := sock.socket.ReadMessage()
+		msgType, msg, error := sock.socket.ReadMessage()
 		sock.mutex.Unlock()
 		fmt.Printf("\tReceived something ..\n")
 
-		if err != nil {
-			fmt.Printf("\tError reading from websocket:%s\n", err.Error())
-			fmt.Fprintf(w, "Error reading from websocket %s", err.Error())
+		if error != nil {
+			fmt.Printf("\tError reading from websocket:%s\n", error.Error())
+			fmt.Fprintf(w, "Error reading from websocket %s", error.Error())
 			return
 		}
 		if msgType == websocket.TextMessage {
 			fmt.Printf("\tReply received.\n")
 
-			raw, err := b64.StdEncoding.DecodeString(string(msg))
+			var raw []byte
+			raw, err = b64.StdEncoding.DecodeString(string(msg))
 			if err != nil {
 				fmt.Printf("Error decoding BASE64 from WS:%s\n", err.Error())
 				fmt.Fprintf(w, "Error decoding BASE64 from WS:%s\n", err.Error())
@@ -221,12 +222,12 @@ func (p *serveCmd) HTTPHandler_HTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 //
-// HTTPHandler_WS is invoked to handle an incoming websocket request.
+// HTTPHandlerWS is invoked to handle an incoming websocket request.
 //
 // If a request is made for http://tunneller.example.com/blah we
 // assign the name "blah" to the connection.
 //
-func (p *serveCmd) HTTPHandler_WS(w http.ResponseWriter, r *http.Request) {
+func (p *serveCmd) HTTPHandlerWS(w http.ResponseWriter, r *http.Request) {
 
 	//
 	// At this point we've got a known-client.
@@ -240,9 +241,9 @@ func (p *serveCmd) HTTPHandler_WS(w http.ResponseWriter, r *http.Request) {
 	//
 	// Ensure the name isn't already in-use.
 	//
-	p.assigned_mutex.Lock()
+	p.assignedMutex.Lock()
 	tmp := p.assigned[cid]
-	p.assigned_mutex.Unlock()
+	p.assignedMutex.Unlock()
 
 	if tmp != nil {
 		w.WriteHeader(http.StatusForbidden)
@@ -264,9 +265,9 @@ func (p *serveCmd) HTTPHandler_WS(w http.ResponseWriter, r *http.Request) {
 	//
 	// Store their name / connection in the map.
 	//
-	p.assigned_mutex.Lock()
+	p.assignedMutex.Lock()
 	p.assigned[cid] = &connection{mutex: &sync.RWMutex{}, socket: conn}
-	p.assigned_mutex.Unlock()
+	p.assignedMutex.Unlock()
 
 	//
 	// Now we're just going to busy-loop.
@@ -282,9 +283,9 @@ func (p *serveCmd) HTTPHandler_WS(w http.ResponseWriter, r *http.Request) {
 		//
 		// Get the structure, we just set.
 		//
-		p.assigned_mutex.Lock()
+		p.assignedMutex.Lock()
 		connection := p.assigned[cid]
-		p.assigned_mutex.Unlock()
+		p.assignedMutex.Unlock()
 
 		//
 		// Loop until we get a disconnection.
@@ -308,9 +309,9 @@ func (p *serveCmd) HTTPHandler_WS(w http.ResponseWriter, r *http.Request) {
 				// Reap the client.
 				//
 				fmt.Printf("Client gone away - freeing the name '%s'\n", cid)
-				p.assigned_mutex.Lock()
+				p.assignedMutex.Lock()
 				p.assigned[cid] = nil
-				p.assigned_mutex.Unlock()
+				p.assignedMutex.Unlock()
 				connected = false
 				continue
 			}
@@ -333,7 +334,7 @@ func (p *serveCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{})
 	// that our mutex is ready.
 	//
 	p.assigned = make(map[string]*connection)
-	p.assigned_mutex = &sync.RWMutex{}
+	p.assignedMutex = &sync.RWMutex{}
 
 	//
 	// We present a HTTP-server
