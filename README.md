@@ -47,8 +47,10 @@ When a client is launched it creates a web-socket connection to the default remo
 Next, when a request comes in for `foo.tunneller.steve.fi` the server can look for an open web-socket connection with the name `foo`, and route the request through it:
 
 * The server sends a "Fetch this URL" request to the client.
-* The client makes the request - which will succeed, because that is in the "private" location.
-* The response is sent back to the server, from where it is sent to the requesting webserver.
+* The client makes the request to fetch the URL
+  * This will succeed, because the client is running inside your network and can access localhost, and any other "internal" resources.
+* The response is sent back to the server
+  * And from there it is routed back to the requested web-browser.
 
 
 ## Installation
@@ -84,39 +86,11 @@ If you wish to host your own central-server things are a little more complex:
 
 * You'll need to create a DNS-entry `tunneller.example.com`
 * You'll also need to setup a __wildcard__ DNS entry for `*.tunneller.example.com` to point to the same host.
-* Finally you'll need to setup nginx/apache to proxy to the server, which will bind to 127.0.0.1:8080 by default.
+* Finally you'll need to setup nginx/apache to proxy to the tunneller application.
+  * By default this will listen upon 127.0.0.1:8080.
 
-For Apache2 I used this for the main site:
+You can find a sample configuration file for Apache2 beneath the [apache2](apache2) directory.
 
-    <VirtualHost 176.9.183.100:80>
-      ServerName tunneller.steve.fi
-      RewriteEngine On
-      RewriteCond %{HTTP:Upgrade} =websocket [NC]
-      RewriteRule /(.*)           ws://localhost:8080/$1 [P,L]
-      RewriteCond %{HTTP:Upgrade} !=websocket [NC]
-      RewriteRule /(.*)           http://localhost:8080/$1 [P,L]
-      Use Proxy 8080
-    </VirtualHost>
-
-Then this for the wildcard:
-
-    #  HTTP-only.
-    <VirtualHost 176.9.183.100:80>
-       ServerName a.tunneller.steve.fi
-       ServerAlias *.tunneller.steve.fi
-       RewriteEngine On
-       Use Proxy 8080
-    </VirtualHost>
-
-Note if you're not using the proxy-modules already you'll need:
-
-    a2enmod proxy
-    a2enmod proxy_http
-    a2enmod proxy_wstunnel
-
-Note that if you want to use SSL you'll need to configure that in the
-Apache/nginx layer too.  Of course since we need to use a wildcard DNS-name
-you'll need to use a DNS-challenge, if you're using Let's Encrypt.
 
 
 ## Github Setup
