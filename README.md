@@ -1,3 +1,7 @@
+[![Go Report Card](https://goreportcard.com/badge/github.com/skx/tunneller)](https://goreportcard.com/report/github.com/skx/tunneller)
+[![license](https://img.shields.io/github/license/skx/tunneller.svg)](https://github.com/skx/tunneller/blob/master/LICENSE)
+[![Release](https://img.shields.io/github/release/skx/tunneller.svg)](https://github.com/skx/tunneller/releases/latest)
+
 Table of Contents
 =================
 
