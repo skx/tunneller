@@ -94,7 +94,7 @@ You can find a sample configuration file for Apache2 beneath the [apache2](apach
 
 ## WSS options
 
-If you want to setup an encrypted remote endpoint (using apache mod_ssl, for example) you can use the client option `-tls` to connect to a secure websocket (**wss**).
+If you want to setup an encrypted remote endpoint (using apache mod_ssl, for example) you can use the `wss://` prefix to connect to a secure websocket (eg. `-tunnel wss://tunneller.example.com`). If no prefix is set on the `-tunnel` option `ws://` is assumed.
 
 In case the SSL certificate you have installed on your webserver is self-signed or you are just testing, you can use the `-insecure` option to allow connection to unverified domains.
 
