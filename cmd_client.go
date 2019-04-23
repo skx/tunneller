@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"context"
 	b64 "encoding/base64"
 	"flag"
@@ -14,6 +15,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/google/subcommands"
@@ -45,6 +47,11 @@ type clientCmd struct {
 	// The service to expose.
 	//
 	expose string
+
+	//
+	// Allow insecure TLS connection (for self signed certs, for example)
+	//
+	insecure bool
 }
 
 // Name returns the name of this sub-command.
@@ -66,6 +73,19 @@ func (p *clientCmd) SetFlags(f *flag.FlagSet) {
 	f.StringVar(&p.expose, "expose", "", "The host/port to expose to the internet.")
 	f.StringVar(&p.tunnel, "tunnel", "tunneller.steve.fi", "The address of the publicly visible tunnel-host")
 	f.StringVar(&p.name, "name", "", "The name for this connection")
+	f.BoolVar(&p.insecure, "insecure", false, "Skip remote certificate validation (insecure!)")
+}
+
+// Check if str has allowed prefix and if not return
+// the string with default one
+func checkUrlSchema(str string, defaultPrefix string, prefixes []string) string {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(str, prefix) {
+			return str
+		}
+	}
+	fmt.Printf("No known prefix found, using %s\n", defaultPrefix)
+	return defaultPrefix + str
 }
 
 // Execute is the entry-point to this sub-command.
@@ -86,22 +106,38 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	}
 
 	if p.name == "" {
-
 		// or error handling
 		uid := uuid.NewV4()
 		p.name = uid.String()
 	}
 
+	// Not so clever hack to deal with malformed (schemaless) urls
+	// Schema must be set in the string to be parsed as url.Parse enforces correct url format
+	allowedPrefixes := []string{"ws://", "wss://"}
+	p.tunnel = checkUrlSchema(p.tunnel, "ws://", allowedPrefixes)
+	
+	// Parse url;
+	parsedUrl, err := url.Parse(p.tunnel)
+	if err != nil {
+		fmt.Printf("Cannot parse url %s: %s\n", p.tunnel, err)
+	} 
+	
 	//
 	// These are the details of the tunneller-server
 	//
-	u := url.URL{Scheme: "ws", Host: p.tunnel, Path: "/" + p.name}
+	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: "/" + p.name}
 	fmt.Printf("Connecting to %s\n", u.String())
 
 	//
 	// connect to it
 	//
-	c, resp, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	tls_config := tls.Config{InsecureSkipVerify: p.insecure}
+	
+	ws_dial := websocket.Dialer{
+		TLSClientConfig: &tls_config,
+	}
+	
+	c, resp, err := ws_dial.Dial(u.String(), nil)
 	if err != nil {
 
 		if err == websocket.ErrBadHandshake {
@@ -123,7 +159,7 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	// Connected now, show instructions
 	//
 	fmt.Printf("Visit http://%s.%s to see the local content from %s\n",
-		p.name, p.tunnel, p.expose)
+		p.name, parsedUrl.Host, p.expose)
 
 	// Loop for messages
 	for {
