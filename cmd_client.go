@@ -86,8 +86,10 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	}
 
 	if p.name == "" {
-		tmp := uuid.Must(uuid.NewV4())
-		p.name = tmp.String()
+
+		// or error handling
+		uid := uuid.NewV4()
+		p.name = uid.String()
 	}
 
 	//
