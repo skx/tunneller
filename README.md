@@ -72,7 +72,7 @@ If you're using `go` before 1.11 then the following command should fetch/update 
 If you're using a more recent version of `go` (which is _highly_ recommended), you need to clone to a directory which is not present upon your `GOPATH`:
 
     git clone https://github.com/skx/tunneller
-    cd deployr
+    cd tunneller
     go install
 
 
