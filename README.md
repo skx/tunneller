@@ -13,6 +13,7 @@ Table of Contents
   * [Source installation go  &gt;= 1.12](#source-installation-go---112)
   * [Installation Self-Hosted Server](#installation-self-hosted-server)
 * [Github Setup](#github-setup)
+* [Implementation Issues](#implementation-issues)
 
 
 # tunneller
@@ -71,7 +72,7 @@ If you're using `go` before 1.11 then the following command should fetch/update 
 If you're using a more recent version of `go` (which is _highly_ recommended), you need to clone to a directory which is not present upon your `GOPATH`:
 
     git clone https://github.com/skx/tunneller
-    cd deployr
+    cd tunneller
     go install
 
 
@@ -108,3 +109,29 @@ pull-requests are created/updated.  The testing is carried out via
 
 Releases are automated in a similar fashion via [.github/build](.github/build),
 and the [github-action-publish-binaries](https://github.com/skx/github-action-publish-binaries) action.
+
+
+## Implementation Issues
+
+This is a _really_ simple application, but it was more fiddly to implement than I expected, primarily because of issues with using websockets:
+
+* Websocket reads/writes block.
+* Keeping the connection alive is fiddly, and requires the use of keep-alives.
+  * But these can't overlap with the "real" communication.
+  * Hence the mutex-use.
+
+It would be much simpler to implement a system like this using a RabbitMQ, mosquitto, or some other message-bus:
+
+* Client connects to the message-bus.
+  * When a HTTP-request must be made it would be sent down the bus.
+  * The reply would get posted back via the same route.
+
+The downside to using a message-bus is security; a client could easily sniff messages meant for _other_ clients.  In a secure-environment this wouldn't matter, but hosting the central-endpoint publicly this would be a mistake.
+
+(Similarly you could use a Redis instance as the central queue, but exposing a Redis host to the internet would be a recipe for compromise.)
+
+If I were running this software at scale I'd probably look at using a queue though; we could create a per-client topic avoiding the issue of security.  The downside to that would be we'd need to register:
+
+     $ tunneller register --login=steve --password=bar
+
+Once that was complete we could connect to the MQ queue, and subscribe to "#steve" - assuming that the registration created an MQ-user for us, and that the ACLs on the queue would be setup such that the user `steve` couldn't subscripe to the topic belonging to another client (e.g. "`#bob`").
