@@ -15,6 +15,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/google/subcommands"
@@ -48,11 +49,6 @@ type clientCmd struct {
 	expose string
 
 	//
-	// Use wss end-point
-	//
-	tls bool
-
-	//
 	// Allow insecure TLS connection (for self signed certs, for example)
 	//
 	insecure bool
@@ -77,8 +73,19 @@ func (p *clientCmd) SetFlags(f *flag.FlagSet) {
 	f.StringVar(&p.expose, "expose", "", "The host/port to expose to the internet.")
 	f.StringVar(&p.tunnel, "tunnel", "tunneller.steve.fi", "The address of the publicly visible tunnel-host")
 	f.StringVar(&p.name, "name", "", "The name for this connection")
-	f.BoolVar(&p.tls, "tls", false, "Use TLS protected endpoint (wss)")
 	f.BoolVar(&p.insecure, "insecure", false, "Skip remote certificate validation (insecure!)")
+}
+
+// Check if str has allowed prefix and if not return
+// the string with default one
+func checkUrlSchema(str string, defaultPrefix string, prefixes []string) string {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(str, prefix) {
+			return str
+		}
+	}
+	fmt.Printf("No known prefix found, using %s\n", defaultPrefix)
+	return defaultPrefix + str
 }
 
 // Execute is the entry-point to this sub-command.
@@ -104,14 +111,21 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 		p.name = uid.String()
 	}
 
-	var urlScheme = "ws"
-	if p.tls == true {
-		urlScheme = "wss"
-	}
+	// Not so clever hack to deal with malformed (schemaless) urls
+	// Schema must be set in the string to be parsed as url.Parse enforces correct url format
+	allowedPrefixes := []string{"ws://", "wss://"}
+	p.tunnel = checkUrlSchema(p.tunnel, "ws://", allowedPrefixes)
+	
+	// Parse url;
+	parsedUrl, err := url.Parse(p.tunnel)
+	if err != nil {
+		fmt.Printf("Cannot parse url %s: %s\n", p.tunnel, err)
+	} 
+	
 	//
 	// These are the details of the tunneller-server
 	//
-	u := url.URL{Scheme: urlScheme, Host: p.tunnel, Path: "/" + p.name}
+	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: "/" + p.name}
 	fmt.Printf("Connecting to %s\n", u.String())
 
 	//
@@ -145,7 +159,7 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	// Connected now, show instructions
 	//
 	fmt.Printf("Visit http://%s.%s to see the local content from %s\n",
-		p.name, p.tunnel, p.expose)
+		p.name, parsedUrl.Host, p.expose)
 
 	// Loop for messages
 	for {
