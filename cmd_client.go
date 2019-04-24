@@ -86,10 +86,6 @@ func (p *clientCmd) onMessage(client MQTT.Client, msg MQTT.Message) {
 	fetch := msg.Payload()
 
 	//
-	// TODO: Validate..
-	//
-
-	//
 	// If this is one of our replies ignore it.
 	//
 	if strings.HasPrefix(string(fetch), "X-") {
@@ -217,7 +213,7 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 
 		if token := c.Subscribe(topic, 0, p.onMessage); token.Wait() && token.Error() != nil {
 			fmt.Printf("Failed to subscribe to the MQ-topic:%s\n", token.Error())
-			return 1
+			os.Exit(1)
 		}
 	}
 

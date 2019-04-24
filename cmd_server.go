@@ -112,7 +112,7 @@ func (p *serveCmd) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	//
 	// Subscribe to the topic.
 	//
-	sub_token := p.mq.Subscribe("clients/"+host, 0, func(client MQTT.Client, msg MQTT.Message) {
+	subToken := p.mq.Subscribe("clients/"+host, 0, func(client MQTT.Client, msg MQTT.Message) {
 
 		//
 		// This function will be executed when a message is received
@@ -128,10 +128,10 @@ func (p *serveCmd) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 			response = tmp[2:]
 		}
 	})
-	sub_token.Wait()
-	if sub_token.Error() != nil {
-		fmt.Printf("Error subscribing to clients/%s - %s\n", host, sub_token.Error())
-		fmt.Fprintf(w, "Error subscribing to clients/%s - %s\n", host, sub_token.Error())
+	subToken.Wait()
+	if subToken.Error() != nil {
+		fmt.Printf("Error subscribing to clients/%s - %s\n", host, subToken.Error())
+		fmt.Fprintf(w, "Error subscribing to clients/%s - %s\n", host, subToken.Error())
 		return
 	}
 
@@ -158,11 +158,11 @@ func (p *serveCmd) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	//
 	// Just to cut down on resource-usage.
 	//
-	unsub_token := p.mq.Unsubscribe("clients/" + host)
-	unsub_token.Wait()
-	if unsub_token.Error() != nil {
+	unsubToken := p.mq.Unsubscribe("clients/" + host)
+	unsubToken.Wait()
+	if unsubToken.Error() != nil {
 		fmt.Printf("Failed to unsubscribe from clients/%s - %s\n",
-			host, unsub_token.Error())
+			host, unsubToken.Error())
 	}
 
 	//
@@ -270,7 +270,7 @@ func (p *serveCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{})
 	//
 	// Launch the server.
 	//
-	err = srv.ListenAndServe()
+	err := srv.ListenAndServe()
 	if err != nil {
 		fmt.Printf("\nError: %s\n", err.Error())
 	}
