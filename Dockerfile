@@ -25,4 +25,4 @@ USER appuser
 COPY --from=builder /go/src/github.com/skx/tunneller/tunneller .
 
 ENTRYPOINT ["/app/tunneller"]
-CMD ["serve"]
+CMD ["serve", "-host", "0.0.0.0"]
