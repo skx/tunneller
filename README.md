@@ -100,6 +100,25 @@ In case the SSL certificate you have installed on your webserver is self-signed 
 
 See the [apache2](apache2) folder for documentation on how to setup an encrypted websocket.
 
+## Usage with docker
+
+### Build the image
+
+Use `docker build --tag=tunneller .` to build the image under the `tunneller:latest` tag.
+
+### Run the server
+
+Use `docker run --publish 8080:8080 --name tunneller tunneller` on your server by replacing to run the image as server.
+
+To run the image and expose a specific port, use your desired port intead of `8080`.
+
+### Run the client
+
+To run the client, you need to give it access to the host network.
+Run it by running `docker run --network host --name tunneller-client tunneller client -expose 8080`.
+Replace `8080` by the port number you want to expose.
+
+
 ## Github Setup
 
 This repository is configured to run tests upon every commit, and when
