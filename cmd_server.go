@@ -19,8 +19,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"strings"
@@ -64,6 +66,38 @@ func (p *serveCmd) SetFlags(f *flag.FlagSet) {
 }
 
 //
+// RemoteIP retrieves the remote IP address of the requesting HTTP-client.
+//
+// This is used for our redis-based rate-limiting.
+//
+func RemoteIP(request *http.Request) string {
+
+	//
+	// Get the X-Forwarded-For header, if present.
+	//
+	xForwardedFor := request.Header.Get("X-Forwarded-For")
+
+	//
+	// No forwarded IP?  Then use the remote address directly.
+	//
+	if xForwardedFor == "" {
+		ip, _, _ := net.SplitHostPort(request.RemoteAddr)
+		return ip
+	}
+
+	entries := strings.Split(xForwardedFor, ",")
+	address := strings.TrimSpace(entries[0])
+
+	// Remove the port - TODO: IPv6.
+	if strings.Contains(address, ":") {
+		tmp := strings.Split(address, ":")
+		address = tmp[0]
+	}
+
+	return (address)
+}
+
+//
 // HTTPHandler is the core of our server.
 //
 // This function is invoked for all accesses.
@@ -98,10 +132,23 @@ func (p *serveCmd) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	//
-	// Publish the request we've received to the topic that we
+	// This is the structure we'll send to the client.
+	//
+	var req Request
+	req.Request = string(requestDump)
+	req.Source = RemoteIP(r)
+
+	//
+	// Now we need to turn that request into something we can pipe
+	// into a string.
+	//
+	toSend, err := json.Marshal(req)
+
+	//
+	// Now we can publish the JSON object to the topic that we
 	// believe the client will be listening upon.
 	//
-	token := p.mq.Publish("clients/"+host, 0, false, requestDump)
+	token := p.mq.Publish("clients/"+host, 0, false, string(toSend))
 	token.Wait()
 
 	//
