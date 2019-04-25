@@ -21,13 +21,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 
 	MQTT "github.com/eclipse/paho.mqtt.golang"
+	ui "github.com/gizak/termui/v3"
+	"github.com/gizak/termui/v3/widgets"
 	"github.com/google/subcommands"
 	uuid "github.com/satori/go.uuid"
 )
@@ -181,7 +182,6 @@ Connection: close
 	//
 	// Send the reply back to the MQ topic.
 	//
-	fmt.Printf("Returning response:\n%s\n", result)
 	token := client.Publish("clients/"+p.name, 0, false, "X-"+result)
 	token.Wait()
 }
@@ -223,12 +223,6 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	p.stats = make(map[string]int)
 
 	//
-	// Create a channel so that we can be disconnected cleanly.
-	//
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-
-	//
 	// Setup the server-address.
 	//
 	opts := MQTT.NewClientOptions().AddBroker(fmt.Sprintf("tcp://%s:1883", p.tunnel))
@@ -237,14 +231,6 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	// Set our name.
 	//
 	opts.SetClientID(p.name)
-
-	//
-	// Connected now, show instructions
-	//
-	fmt.Printf("tunneller client launched\n")
-	fmt.Printf("=========================\n")
-	fmt.Printf("Visit http://%s.%s/ to see the local content from %s\n",
-		p.name, p.tunnel, p.expose)
 
 	//
 	// Once we're connected we will subscribe to the named topic.
@@ -269,9 +255,110 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	}
 
 	//
-	// Wait until we're interrupted.
+	// Setup our GUI
 	//
-	<-c
+	if err := ui.Init(); err != nil {
+		log.Fatalf("failed to initialize termui: %v", err)
+	}
+	defer ui.Close()
+
+	//
+	// Determine our console dimensions.
+	//
+	termWidth, _ := ui.TerminalDimensions()
+
+	//
+	// This is the first page.
+	//
+	// * We show an overview.
+	//
+	// Page 1 - widget 1 - keyboard
+	//
+	p11 := widgets.NewParagraph()
+	p11.Title = "Keyboard Control"
+	p11.Text = "\n  Press q to quit\n  Press h or l to switch tabs, or use the arrow-keys\n\n"
+	p11.SetRect(0, 3, termWidth, 9)
+	p11.BorderStyle.Fg = ui.ColorYellow
+
+	p21 := widgets.NewParagraph()
+	p21.Title = "Stats"
+	p21.Text = "\n  This is our second tab"
+	p21.SetRect(0, 3, termWidth, 9)
+	p21.BorderStyle.Fg = ui.ColorYellow
+
+	//
+	// This is our tab-list
+	//
+	tabpane := widgets.NewTabPane("Overview", "Statistics")
+	tabpane.SetRect(0, 0, termWidth, 3)
+	tabpane.Border = true
+
+	//
+	// The renderTab function will display our tab.
+	//
+	renderTab := func() {
+		switch tabpane.ActiveTabIndex {
+		case 0:
+			//
+			// First tab-pane has a pair of text-widgets.
+			//
+			ui.Render(p11)
+		case 1:
+			//
+			// Second tab-pane has just a single widget.
+			//
+			ui.Render(p21)
+		}
+	}
+
+	//
+	// Default to the first tab.
+	//
+	ui.Render(tabpane, p11)
+
+	//
+	// Ensure we can poll for events.
+	//
+	uiEvents := ui.PollEvents()
+
+	//
+	// Constantly work on our list.
+	//
+	for {
+		select {
+		case e := <-uiEvents:
+			switch e.ID {
+
+			case "q", "<C-c>":
+				return 0
+			case "h", "<Left>", "<tab>":
+				tabpane.FocusLeft()
+				ui.Clear()
+				ui.Render(tabpane)
+				renderTab()
+			case "l", "<Right>":
+				tabpane.FocusRight()
+				ui.Clear()
+				ui.Render(tabpane)
+				renderTab()
+
+			case "<Resize>":
+				//
+				// This just resizes the outline around the tab
+				//
+				// It doesn't resize the actual widgets upon the
+				// tab.
+				//
+				// Oops!
+				//
+				payload := e.Payload.(ui.Resize)
+				tabpane.SetRect(0, 0, payload.Width, payload.Height)
+				ui.Clear()
+				ui.Render(tabpane)
+				renderTab()
+			}
+		}
+	}
 
 	//
 	// Not reached.
