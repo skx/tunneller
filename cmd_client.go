@@ -1,25 +1,33 @@
 //
 // Client for our self-hosted ngrok alternative.
 //
+// The way that this operates is pretty simple:
+//
+//  1.  Connect to the named Mosquitto Queue
+//
+//  2.  Subscribe to /clients/$id
+//
+//  3.  Wait for an URL to be posted to that topic, when it
+//     is we fetch it and return the result.
+//
+//  4.  Magic.
 
 package main
 
 import (
 	"bytes"
-	"crypto/tls"
 	"context"
-	b64 "encoding/base64"
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
-	"net/url"
+	"os"
+	"os/signal"
 	"strings"
-	"sync"
+	"syscall"
 
+	MQTT "github.com/eclipse/paho.mqtt.golang"
 	"github.com/google/subcommands"
-	"github.com/gorilla/websocket"
 	uuid "github.com/satori/go.uuid"
 )
 
@@ -27,11 +35,6 @@ import (
 // clientCmd is the structure for this sub-command.
 //
 type clientCmd struct {
-
-	//
-	// Mutex protects our state.
-	//
-	mutex *sync.Mutex
 
 	//
 	// The name we'll access this resource via.
@@ -47,11 +50,6 @@ type clientCmd struct {
 	// The service to expose.
 	//
 	expose string
-
-	//
-	// Allow insecure TLS connection (for self signed certs, for example)
-	//
-	insecure bool
 }
 
 // Name returns the name of this sub-command.
@@ -71,167 +69,170 @@ func (p *clientCmd) Usage() string {
 func (p *clientCmd) SetFlags(f *flag.FlagSet) {
 
 	f.StringVar(&p.expose, "expose", "", "The host/port to expose to the internet.")
-	f.StringVar(&p.tunnel, "tunnel", "tunneller.steve.fi", "The address of the publicly visible tunnel-host")
+	f.StringVar(&p.tunnel, "tunnel", "tunnel.steve.fi", "The address of the publicly visible tunnel-host")
 	f.StringVar(&p.name, "name", "", "The name for this connection")
-	f.BoolVar(&p.insecure, "insecure", false, "Skip remote certificate validation (insecure!)")
 }
 
-// Check if str has allowed prefix and if not return
-// the string with default one
-func checkUrlSchema(str string, defaultPrefix string, prefixes []string) string {
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(str, prefix) {
-			return str
-		}
+// onMessage is called when a message is received upon the MQ-topic we're
+// watching.
+//
+// We have to peform the HTTP-fetch which is contained within the message,
+// and submit the result back to that same topic.
+func (p *clientCmd) onMessage(client MQTT.Client, msg MQTT.Message) {
+
+	//
+	// Get the text of the request.
+	//
+	fetch := msg.Payload()
+
+	//
+	// If this is one of our replies ignore it.
+	//
+	if strings.HasPrefix(string(fetch), "X-") {
+		return
 	}
-	fmt.Printf("No known prefix found, using %s\n", defaultPrefix)
-	return defaultPrefix + str
+
+	//
+	// At this point we've received a request.
+	//
+	fmt.Printf("Received incoming request:\n%s\n", fetch)
+
+	//
+	// This is the result we'll publish back onto the topic.
+	//
+	result := `HTTP/1.0 200 OK
+Content-type: text/html; charset=UTF-8
+Connection: close
+
+<!DOCTYPE html>
+<html>
+<body>
+<p>The remote server was unreachable.</p>
+</body>
+</html>`
+
+	//
+	// Make the connection to our proxied host.
+	//
+	d := net.Dialer{}
+	con, err := d.Dial("tcp", p.expose)
+
+	//
+	// OK we have a default result saved, which shows an error-page.
+	//
+	// If we didn't actually get an error then save the real response.
+	//
+	if err == nil {
+
+		//
+		// Make the request
+		//
+		con.Write(fetch)
+
+		//
+		// Read the reply.
+		//
+		var reply bytes.Buffer
+		io.Copy(&reply, con)
+
+		//
+		// Store.
+		//
+		result = string(reply.Bytes())
+	}
+
+	//
+	// Send the reply back to the MQ topic.
+	//
+	fmt.Printf("Returning response:\n%s\n", result)
+	token := client.Publish("clients/"+p.name, 0, false, "X-"+result)
+	token.Wait()
 }
 
+//
 // Execute is the entry-point to this sub-command.
+//
+// 1. Connect to the tunnel-host.
+//
+// 2. Subscribe to MQ and await the reception of URLs to fetch.
+//
+//    (When one is received it will be handled via onMessage.)
+//
 func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
-
-	p.mutex = &sync.Mutex{}
 
 	//
 	// Ensure that we have setup variables
 	//
 	if p.expose == "" {
-		fmt.Printf("You must specify the host:port to expose.\n")
+		fmt.Printf("You must specify the local host:port to expose.\n")
 		return 1
 	}
 	if p.tunnel == "" {
-		fmt.Printf("You must specify the URL of the tunnel end-point.\n")
+		fmt.Printf("You must specify the tunnel end-point.\n")
 		return 1
 	}
 
+	//
+	// This is optional, but useful.
+	//
 	if p.name == "" {
-		// or error handling
 		uid := uuid.NewV4()
 		p.name = uid.String()
 	}
 
-	// Not so clever hack to deal with malformed (schemaless) urls
-	// Schema must be set in the string to be parsed as url.Parse enforces correct url format
-	allowedPrefixes := []string{"ws://", "wss://"}
-	p.tunnel = checkUrlSchema(p.tunnel, "ws://", allowedPrefixes)
-	
-	// Parse url;
-	parsedUrl, err := url.Parse(p.tunnel)
-	if err != nil {
-		fmt.Printf("Cannot parse url %s: %s\n", p.tunnel, err)
-	} 
-	
 	//
-	// These are the details of the tunneller-server
+	// Create a channel so that we can be disconnected cleanly.
 	//
-	u := url.URL{Scheme: parsedUrl.Scheme, Host: parsedUrl.Host, Path: "/" + p.name}
-	fmt.Printf("Connecting to %s\n", u.String())
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
 	//
-	// connect to it
+	// Setup the server-address.
 	//
-	tls_config := tls.Config{InsecureSkipVerify: p.insecure}
-	
-	ws_dial := websocket.Dialer{
-		TLSClientConfig: &tls_config,
-	}
-	
-	c, resp, err := ws_dial.Dial(u.String(), nil)
-	if err != nil {
+	opts := MQTT.NewClientOptions().AddBroker(fmt.Sprintf("tcp://%s:1883", p.tunnel))
 
-		if err == websocket.ErrBadHandshake {
-			fmt.Printf("\tHandshake failed with status %d\n", resp.StatusCode)
-
-			defer resp.Body.Close()
-			var body []byte
-			body, err = ioutil.ReadAll(resp.Body)
-			if err == nil {
-				fmt.Printf("\t%s\n\n", body)
-			}
-		}
-		fmt.Printf("Connection failed: %s", err)
-		return 1
-	}
-	defer c.Close()
+	//
+	// Set our name.
+	//
+	opts.SetClientID(p.name)
 
 	//
 	// Connected now, show instructions
 	//
-	fmt.Printf("Visit http://%s.%s to see the local content from %s\n",
-		p.name, parsedUrl.Host, p.expose)
+	fmt.Printf("tunneller client launched\n")
+	fmt.Printf("=========================\n")
+	fmt.Printf("Visit http://%s.%s/ to see the local content from %s\n",
+		p.name, p.tunnel, p.expose)
 
-	// Loop for messages
-	for {
-		p.mutex.Lock()
-		msgType, message, err := c.ReadMessage()
-		p.mutex.Unlock()
+	//
+	// Once we're connected we will subscribe to the named topic.
+	//
+	opts.OnConnect = func(c MQTT.Client) {
 
-		if err != nil {
-			fmt.Printf("Error reading the message from the socket: %s", err.Error())
-			return 1
-		}
+		topic := "clients/" + p.name
 
-		if msgType == websocket.PingMessage {
-			fmt.Printf("Got pong-reply\n")
-			p.mutex.Lock()
-			c.WriteMessage(websocket.PongMessage, nil)
-			p.mutex.Unlock()
-
-		}
-		if msgType == websocket.TextMessage {
-
-			//
-			// At this point we've received a message.
-			//
-			// Show it
-			//
-			fmt.Printf("Received incoming request:\n%s\n", message)
-
-			//
-			// Make the connection to our proxied host.
-			//
-			d := net.Dialer{}
-			con, err := d.Dial("tcp", p.expose)
-			if err != nil {
-				//
-				// Connection refused talking to the host
-				//
-				res := `HTTP 200 OK
-Connection: close
-
-Remote server was unreachable
-`
-				safe := b64.StdEncoding.EncodeToString([]byte(res))
-
-				p.mutex.Lock()
-				err = c.WriteMessage(websocket.TextMessage, []byte(safe))
-				if err != nil {
-					fmt.Printf("Error writing our error message to the socket:%s\n", err.Error())
-				}
-				p.mutex.Unlock()
-				continue
-			}
-			con.Write(message)
-
-			//
-			// Read the reply
-			//
-			var reply bytes.Buffer
-			io.Copy(&reply, con)
-
-			//
-			// Send it back
-			//
-			safe := b64.StdEncoding.EncodeToString(reply.Bytes())
-			p.mutex.Lock()
-			err = c.WriteMessage(websocket.TextMessage, []byte(safe))
-			if err != nil {
-				fmt.Printf("Error writing our response to the socket:%s\n", err.Error())
-			}
-
-			p.mutex.Unlock()
-			fmt.Printf("Sent reply ..\n")
+		if token := c.Subscribe(topic, 0, p.onMessage); token.Wait() && token.Error() != nil {
+			fmt.Printf("Failed to subscribe to the MQ-topic:%s\n", token.Error())
+			os.Exit(1)
 		}
 	}
+
+	//
+	// Actually establish the MQ connection.
+	//
+	client := MQTT.NewClient(opts)
+	if token := client.Connect(); token.Wait() && token.Error() != nil {
+		fmt.Printf("Failed to connect to the MQ-host %s\n", token.Error())
+		return 1
+	}
+
+	//
+	// Wait until we're interrupted.
+	//
+	<-c
+
+	//
+	// Not reached.
+	//
+	return 0
 }
