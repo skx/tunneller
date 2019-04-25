@@ -189,13 +189,13 @@ func (p *serveCmd) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	// is either a) offline, or b) failing.
 	//
 	count := 0
-	for len(response) == 0 && count < 10 {
+	for len(response) == 0 && count < 40 {
 
 		//
-		// Sleep 1 second; max count 10, result: 10 seconds.
+		// Sleep .25 seconds; max count 40, result: 10 seconds.
 		//
 		fmt.Printf("Awaiting a reply ..\n")
-		time.Sleep(1 * time.Second)
+		time.Sleep(250 * time.Millisecond)
 		count++
 	}
 
@@ -226,7 +226,7 @@ func (p *serveCmd) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 		//
 		// NOTE: This is a "complete" response.
 		//
-		response = `HTTP/1.0 200 OK
+		response = `HTTP/1.0 503 OK
 Content-type: text/html; charset=UTF-8
 Connection: close
 
