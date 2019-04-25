@@ -116,7 +116,7 @@ func (p *clientCmd) onMessage(client MQTT.Client, msg MQTT.Message) {
 	//
 	// This is the result we'll publish back onto the topic.
 	//
-	result := `HTTP/1.0 200 OK
+	result := `HTTP/1.0 503 OK
 Content-type: text/html; charset=UTF-8
 Connection: close
 
@@ -152,7 +152,7 @@ Connection: close
 		io.Copy(&reply, con)
 
 		//
-		// Store.
+		// Store the result in our string.
 		//
 		result = string(reply.Bytes())
 	}
