@@ -17,16 +17,20 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
-	"os/signal"
+	"sort"
 	"strings"
-	"syscall"
+	"time"
 
 	MQTT "github.com/eclipse/paho.mqtt.golang"
+	ui "github.com/gizak/termui/v3"
+	"github.com/gizak/termui/v3/widgets"
 	"github.com/google/subcommands"
 	uuid "github.com/satori/go.uuid"
 )
@@ -50,6 +54,16 @@ type clientCmd struct {
 	// The service to expose.
 	//
 	expose string
+
+	//
+	// A map of the HTTP-status-codes we've returned and their count
+	//
+	stats map[string]int
+
+	//
+	// The recent requests we've seen.
+	//
+	requests []Request
 }
 
 // Name returns the name of this sub-command.
@@ -93,14 +107,21 @@ func (p *clientCmd) onMessage(client MQTT.Client, msg MQTT.Message) {
 	}
 
 	//
-	// At this point we've received a request.
+	// OK if it isn't one of our requests it should be a JSON-object
 	//
-	fmt.Printf("Received incoming request:\n%s\n", fetch)
+	var req Request
+	err := json.Unmarshal([]byte(fetch), &req)
+	if err != nil {
+		fmt.Printf("Failed to unmarshal ..: %s\n", err.Error())
+		return
+	}
 
 	//
 	// This is the result we'll publish back onto the topic.
 	//
-	result := `HTTP/1.0 200 OK
+	//   503 -> Service Unavailable
+	//
+	result := `HTTP/1.0 503 OK
 Content-type: text/html; charset=UTF-8
 Connection: close
 
@@ -127,7 +148,7 @@ Connection: close
 		//
 		// Make the request
 		//
-		con.Write(fetch)
+		con.Write([]byte(req.Request))
 
 		//
 		// Read the reply.
@@ -136,15 +157,49 @@ Connection: close
 		io.Copy(&reply, con)
 
 		//
-		// Store.
+		// Store the result in our string.
 		//
 		result = string(reply.Bytes())
 	}
 
 	//
+	// Bump our stats - we keep track of the number of distinct times
+	// each HTTP statuscode has been seen.
+	//
+	// This is grossly inefficient.
+	//
+	tmp := strings.Split(result, " ")
+	if len(tmp) > 1 {
+		code := tmp[1]
+		p.stats[code]++
+	}
+
+	//
+	// Save the request away - but only the first line of the request
+	//
+	tmp2 := strings.Split(req.Request, "\n")
+	if len(tmp2) > 1 {
+		// Only keep the first line.
+		req.Request = strings.Replace(tmp2[0], "\r", "", -1)
+	}
+	p.requests = append(p.requests, req)
+
+	//
+	// Truncate the list of requests.  We'll keep the most recent
+	// five entries here.
+	//
+	if len(p.requests) > 5 {
+
+		// Work out how many to trim.
+		trim := len(p.requests) - 5
+
+		// Do the necessary truncation.
+		p.requests = p.requests[trim:]
+	}
+
+	//
 	// Send the reply back to the MQ topic.
 	//
-	fmt.Printf("Returning response:\n%s\n", result)
 	token := client.Publish("clients/"+p.name, 0, false, "X-"+result)
 	token.Wait()
 }
@@ -181,10 +236,9 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	}
 
 	//
-	// Create a channel so that we can be disconnected cleanly.
+	// Setup a map of our HTTP-status code statistics.
 	//
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	p.stats = make(map[string]int)
 
 	//
 	// Setup the server-address.
@@ -195,14 +249,6 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	// Set our name.
 	//
 	opts.SetClientID(p.name)
-
-	//
-	// Connected now, show instructions
-	//
-	fmt.Printf("tunneller client launched\n")
-	fmt.Printf("=========================\n")
-	fmt.Printf("Visit http://%s.%s/ to see the local content from %s\n",
-		p.name, p.tunnel, p.expose)
 
 	//
 	// Once we're connected we will subscribe to the named topic.
@@ -227,9 +273,192 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	}
 
 	//
-	// Wait until we're interrupted.
+	// Setup our GUI
 	//
-	<-c
+	if err := ui.Init(); err != nil {
+		log.Fatalf("failed to initialize termui: %v", err)
+	}
+	defer ui.Close()
+
+	//
+	// Determine our console dimensions.
+	//
+	termWidth, termHeight := ui.TerminalDimensions()
+
+	//
+	// This is the first page.
+	//
+	// * We show an overview.
+	//
+	// Page 1 - widget 1 - keyboard
+	//
+	p11 := widgets.NewParagraph()
+	p11.Title = "Keyboard Control"
+	p11.Text = "\n  Press q to quit\n  Press h or l to switch tabs, or use the arrow-keys\n\n"
+	p11.SetRect(0, 3, termWidth, 9)
+	p11.BorderStyle.Fg = ui.ColorYellow
+
+	//
+	// Page 1 - widget 2 - access
+	//
+	p12 := widgets.NewParagraph()
+	p12.Title = "Remote Access"
+	p12.Text += "\n  http://" + p.name + "." + p.tunnel + "\n\n"
+	p12.Text += "  Will proxy content from " + p.expose
+	p12.SetRect(0, 10, termWidth, 17)
+	p12.BorderStyle.Fg = ui.ColorYellow
+
+	//
+	// Page 2 - widget 1 - response-codes
+	//
+	p21 := widgets.NewBarChart()
+	p21.Title = "HTTP Responses"
+	p21.SetRect(0, 3, termWidth, termHeight/2)
+
+	//
+	// Page 2 - widget 2 - source + request
+	//
+	p22 := widgets.NewTable()
+	p22.Rows = [][]string{
+		[]string{"IP Address", "Request"},
+	}
+	p22.TextStyle = ui.NewStyle(ui.ColorWhite)
+	p22.SetRect(0, (termHeight/2)+1, termWidth, termHeight-3)
+	p22.ColumnWidths = []int{20, termWidth - 20 - 3}
+
+	updateResponse := func() {
+		//
+		// We want to show all the distinct status-codes.
+		//
+		var statsData []float64
+		var statsLabel []string
+
+		//
+		// We want to sort the keys, so that HTTP-status codes
+		// are shown in a logical order.
+		//
+		var tmp []string
+		for k := range p.stats {
+			tmp = append(tmp, k)
+		}
+		sort.Strings(tmp)
+
+		//
+		// Update.
+		//
+		for _, code := range tmp {
+			if p.stats[code] > 0 {
+				statsLabel = append(statsLabel, code)
+				statsData = append(statsData, float64(p.stats[code]))
+			}
+		}
+
+		//
+		// Update the graph and render it.
+		//
+		p21.Labels = statsLabel
+		p21.Data = statsData
+		ui.Render(p21)
+
+		//
+		// Now update the table.
+		//
+		var rows [][]string
+		rows = append(rows, []string{"IP Address", "Request"})
+		for _, ent := range p.requests {
+			rows = append(rows, []string{ent.Source, ent.Request})
+		}
+		p22.Rows = rows
+		ui.Render(p22)
+	}
+
+	//
+	// This is our tab-list
+	//
+	tabpane := widgets.NewTabPane("Overview", "Statistics")
+	tabpane.SetRect(0, 0, termWidth, 3)
+	tabpane.Border = true
+
+	//
+	// The renderTab function will display our tab.
+	//
+	renderTab := func() {
+		switch tabpane.ActiveTabIndex {
+		case 0:
+			//
+			// First tab-pane has a pair of text-widgets.
+			//
+			ui.Render(p11, p12)
+		case 1:
+			//
+			// Second tab-pane has just a single widget.
+			//
+			ui.Render(p21, p22)
+		}
+	}
+
+	//
+	// Default to the first tab.
+	//
+	ui.Render(tabpane, p11, p12)
+
+	//
+	// Ensure we can poll for events.
+	//
+	uiEvents := ui.PollEvents()
+
+	//
+	// Also update our graph every half-second.
+	//
+	ticker := time.NewTicker(500 * time.Millisecond).C
+
+	//
+	// Constantly work on our list.
+	//
+	for {
+		select {
+		case e := <-uiEvents:
+			switch e.ID {
+
+			case "q", "<C-c>":
+				return 0
+			case "h", "<Left>", "<tab>":
+				tabpane.FocusLeft()
+				ui.Clear()
+				ui.Render(tabpane)
+				renderTab()
+			case "l", "<Right>":
+				tabpane.FocusRight()
+				ui.Clear()
+				ui.Render(tabpane)
+				renderTab()
+
+			case "<Resize>":
+				//
+				// This just resizes the outline around the tab
+				//
+				// It doesn't resize the actual widgets upon the
+				// tab.
+				//
+				// Oops!
+				//
+				payload := e.Payload.(ui.Resize)
+				tabpane.SetRect(0, 0, payload.Width, payload.Height)
+				ui.Clear()
+				ui.Render(tabpane)
+				renderTab()
+			}
+		case <-ticker:
+
+			//
+			// If the tab-selected is the stats-page
+			// then update our table and graph.
+			//
+			if tabpane.ActiveTabIndex == 1 {
+				updateResponse()
+			}
+		}
+	}
 
 	//
 	// Not reached.
