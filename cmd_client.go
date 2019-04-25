@@ -17,6 +17,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -93,9 +94,14 @@ func (p *clientCmd) onMessage(client MQTT.Client, msg MQTT.Message) {
 	}
 
 	//
-	// At this point we've received a request.
+	// OK if it isn't one of our requests it should be a JSON-object
 	//
-	fmt.Printf("Received incoming request:\n%s\n", fetch)
+	var req Request
+	err := json.Unmarshal([]byte(fetch), &req)
+	if err != nil {
+		fmt.Printf("Failed to unmarshal ..: %s\n", err.Error())
+		return
+	}
 
 	//
 	// This is the result we'll publish back onto the topic.
@@ -127,7 +133,7 @@ Connection: close
 		//
 		// Make the request
 		//
-		con.Write(fetch)
+		con.Write([]byte(req.Request))
 
 		//
 		// Read the reply.
