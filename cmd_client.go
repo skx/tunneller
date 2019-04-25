@@ -51,6 +51,16 @@ type clientCmd struct {
 	// The service to expose.
 	//
 	expose string
+
+	//
+	// A map of the HTTP-status-codes we've returned and their count
+	//
+	stats map[string]int
+
+	//
+	// The recent requests we've seen.
+	//
+	requests []Request
 }
 
 // Name returns the name of this sub-command.
@@ -185,6 +195,11 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 		uid := uuid.NewV4()
 		p.name = uid.String()
 	}
+
+	//
+	// Setup a map of our HTTP-status code statistics.
+	//
+	p.stats = make(map[string]int)
 
 	//
 	// Create a channel so that we can be disconnected cleanly.
