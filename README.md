@@ -34,12 +34,9 @@ Assuming you have a service running within your local network, perhaps a HTTP se
 
     $ tunneller client -expose localhost:8080
 
-This will output something like this:
+This will show you initial page of the GUI, letting you know how you can access your resource externally:
 
-    ..
-    Visit http://5ab654e6-7672-4e54-8368-49ec4aa4c6e4.tunnel.steve.fi/ to see your content
-
-The location listed will now be publicly visible to all remote hosts.
+![Screenshot](_media/gui0.png)
 
 As the name implies there is a central-host involved which is in charge of routing/proxying to your local network - in this case that central host is `tunnel.steve.fi` - the reason this project exists is not to host a general-purpose end-point, but instead to allow you to host your own.
 
