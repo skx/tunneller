@@ -1,13 +1,13 @@
 package main
 
-// Type Request is used for the communication between the client and the
+// Request is used for the communication between the client and the
 // server.
 //
 // In our earlier releases we communicated from the server to the client
 // via the use of web-sockets.   Now we use a real queue.
 //
 // The server instructs the client of what it wants to fetch by sending an
-// instance of the request-object down the queue.  This requiest contains
+// instance of the request-object down the queue.  This structure contains
 // the actual request to send:
 //
 //   GET / HTTP/1.0
