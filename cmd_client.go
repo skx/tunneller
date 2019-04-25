@@ -24,7 +24,9 @@ import (
 	"log"
 	"net"
 	"os"
+	"sort"
 	"strings"
+	"time"
 
 	MQTT "github.com/eclipse/paho.mqtt.golang"
 	ui "github.com/gizak/termui/v3"
@@ -117,6 +119,8 @@ func (p *clientCmd) onMessage(client MQTT.Client, msg MQTT.Message) {
 	//
 	// This is the result we'll publish back onto the topic.
 	//
+	//   503 -> Service Unavailable
+	//
 	result := `HTTP/1.0 503 OK
 Content-type: text/html; charset=UTF-8
 Connection: close
@@ -175,9 +179,23 @@ Connection: close
 	//
 	tmp2 := strings.Split(req.Request, "\n")
 	if len(tmp2) > 1 {
-		req.Request = tmp2[0]
+		// Only keep the first line.
+		req.Request = strings.Replace(tmp2[0], "\r", "", -1)
 	}
 	p.requests = append(p.requests, req)
+
+	//
+	// Truncate the list of requests.  We'll keep the most recent
+	// five entries here.
+	//
+	if len(p.requests) > 5 {
+
+		// Work out how many to trim.
+		trim := len(p.requests) - 5
+
+		// Do the necessary truncation.
+		p.requests = p.requests[trim:]
+	}
 
 	//
 	// Send the reply back to the MQ topic.
@@ -265,7 +283,7 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	//
 	// Determine our console dimensions.
 	//
-	termWidth, _ := ui.TerminalDimensions()
+	termWidth, termHeight := ui.TerminalDimensions()
 
 	//
 	// This is the first page.
@@ -280,11 +298,79 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	p11.SetRect(0, 3, termWidth, 9)
 	p11.BorderStyle.Fg = ui.ColorYellow
 
-	p21 := widgets.NewParagraph()
-	p21.Title = "Stats"
-	p21.Text = "\n  This is our second tab"
-	p21.SetRect(0, 3, termWidth, 9)
-	p21.BorderStyle.Fg = ui.ColorYellow
+	//
+	// Page 1 - widget 2 - access
+	//
+	p12 := widgets.NewParagraph()
+	p12.Title = "Remote Access"
+	p12.Text += "\n  http://" + p.name + "." + p.tunnel + "\n\n"
+	p12.Text += "  Will proxy content from " + p.expose
+	p12.SetRect(0, 10, termWidth, 17)
+	p12.BorderStyle.Fg = ui.ColorYellow
+
+	//
+	// Page 2 - widget 1 - response-codes
+	//
+	p21 := widgets.NewBarChart()
+	p21.Title = "HTTP Responses"
+	p21.SetRect(0, 3, termWidth, termHeight/2)
+
+	//
+	// Page 2 - widget 2 - source + request
+	//
+	p22 := widgets.NewTable()
+	p22.Rows = [][]string{
+		[]string{"IP Address", "Request"},
+	}
+	p22.TextStyle = ui.NewStyle(ui.ColorWhite)
+	p22.SetRect(0, (termHeight/2)+1, termWidth, termHeight-3)
+	p22.ColumnWidths = []int{20, termWidth - 20 - 3}
+
+	updateResponse := func() {
+		//
+		// We want to show all the distinct status-codes.
+		//
+		var statsData []float64
+		var statsLabel []string
+
+		//
+		// We want to sort the keys, so that HTTP-status codes
+		// are shown in a logical order.
+		//
+		var tmp []string
+		for k := range p.stats {
+			tmp = append(tmp, k)
+		}
+		sort.Strings(tmp)
+
+		//
+		// Update.
+		//
+		for _, code := range tmp {
+			if p.stats[code] > 0 {
+				statsLabel = append(statsLabel, code)
+				statsData = append(statsData, float64(p.stats[code]))
+			}
+		}
+
+		//
+		// Update the graph and render it.
+		//
+		p21.Labels = statsLabel
+		p21.Data = statsData
+		ui.Render(p21)
+
+		//
+		// Now update the table.
+		//
+		var rows [][]string
+		rows = append(rows, []string{"IP Address", "Request"})
+		for _, ent := range p.requests {
+			rows = append(rows, []string{ent.Source, ent.Request})
+		}
+		p22.Rows = rows
+		ui.Render(p22)
+	}
 
 	//
 	// This is our tab-list
@@ -302,24 +388,29 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 			//
 			// First tab-pane has a pair of text-widgets.
 			//
-			ui.Render(p11)
+			ui.Render(p11, p12)
 		case 1:
 			//
 			// Second tab-pane has just a single widget.
 			//
-			ui.Render(p21)
+			ui.Render(p21, p22)
 		}
 	}
 
 	//
 	// Default to the first tab.
 	//
-	ui.Render(tabpane, p11)
+	ui.Render(tabpane, p11, p12)
 
 	//
 	// Ensure we can poll for events.
 	//
 	uiEvents := ui.PollEvents()
+
+	//
+	// Also update our graph every half-second.
+	//
+	ticker := time.NewTicker(500 * time.Millisecond).C
 
 	//
 	// Constantly work on our list.
@@ -356,6 +447,15 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 				ui.Clear()
 				ui.Render(tabpane)
 				renderTab()
+			}
+		case <-ticker:
+
+			//
+			// If the tab-selected is the stats-page
+			// then update our table and graph.
+			//
+			if tabpane.ActiveTabIndex == 1 {
+				updateResponse()
 			}
 		}
 	}
