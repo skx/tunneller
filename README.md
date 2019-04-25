@@ -23,6 +23,9 @@ This is very useful for testing webhooks, the generation of static-site compiler
 
 >**NOTE**: There is a public end-point I host, you __SHOULD NOT__ rely upon it.  It might come and go.  It is not secure.
 
+There is a _basic_ GUI present to allow you to view status-codes, and the most recent few requests:
+
+![Screenshot](_media/gui1.png)
 
 
 ## Overview
