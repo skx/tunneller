@@ -158,6 +158,27 @@ Connection: close
 	}
 
 	//
+	// Bump our stats - we keep track of the number of distinct times
+	// each HTTP statuscode has been seen.
+	//
+	// This is grossly inefficient.
+	//
+	tmp := strings.Split(result, " ")
+	if len(tmp) > 1 {
+		code := tmp[1]
+		p.stats[code]++
+	}
+
+	//
+	// Save the request away - but only the first line of the request
+	//
+	tmp2 := strings.Split(req.Request, "\n")
+	if len(tmp2) > 1 {
+		req.Request = tmp2[0]
+	}
+	p.requests = append(p.requests, req)
+
+	//
 	// Send the reply back to the MQ topic.
 	//
 	fmt.Printf("Returning response:\n%s\n", result)
