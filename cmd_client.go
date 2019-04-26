@@ -3,14 +3,16 @@
 //
 // The way that this operates is pretty simple:
 //
-//  1.  Connect to the named Mosquitto Queue
+//  1.  Generate an ID for ourselves.
+//  2.  Connect to the named Mosquitto Queue
+//  3.  Subscribe to /clients/$id
+//  4.  When a request to fetch an URL is posted to the topic; get it.
+//  5.  Post the reply back to the same topic.
 //
-//  2.  Subscribe to /clients/$id
+// There is a simple text-based GUI present, which relies upon keeping
+// a few statistics about the requests we've made, and the resulting
+// response-code(s).
 //
-//  3.  Wait for an URL to be posted to that topic, when it
-//     is we fetch it and return the result.
-//
-//  4.  Magic.
 
 package main
 
@@ -46,17 +48,21 @@ type clientCmd struct {
 	name string
 
 	//
-	// The tunnel end-point
+	// The tunnel end-point.
+	//
+	// This is the host to which remote visitors will make their
+	// HTTP-requests, and it is also the host which is running an
+	// open (!) mosquitto-server.
 	//
 	tunnel string
 
 	//
-	// The service to expose.
+	// The service to expose, expressed as 1.2.3.4:NN
 	//
 	expose string
 
 	//
-	// A map of the HTTP-status-codes we've returned and their count
+	// A map of the HTTP-status-codes we've returned and their count.
 	//
 	stats map[string]int
 
@@ -90,7 +96,7 @@ func (p *clientCmd) SetFlags(f *flag.FlagSet) {
 // onMessage is called when a message is received upon the MQ-topic we're
 // watching.
 //
-// We have to peform the HTTP-fetch which is contained within the message,
+// We have to perform the HTTP-fetch which is contained within the message,
 // and submit the result back to that same topic.
 func (p *clientCmd) onMessage(client MQTT.Client, msg MQTT.Message) {
 
@@ -102,6 +108,11 @@ func (p *clientCmd) onMessage(client MQTT.Client, msg MQTT.Message) {
 	//
 	// If this is one of our replies ignore it.
 	//
+	// Because we receive requests and post the replies upon the
+	// same topic we make sure that our replies are prefixed with
+	// `X-`, this means we can avoid processing the requests that
+	// we sent ourselves.
+	//
 	if strings.HasPrefix(string(fetch), "X-") {
 		return
 	}
@@ -112,12 +123,18 @@ func (p *clientCmd) onMessage(client MQTT.Client, msg MQTT.Message) {
 	var req Request
 	err := json.Unmarshal([]byte(fetch), &req)
 	if err != nil {
+
+		//
+		// TODO: This needs better handling.
+		//
 		fmt.Printf("Failed to unmarshal ..: %s\n", err.Error())
 		return
 	}
 
 	//
-	// This is the result we'll publish back onto the topic.
+	// This is the result we'll publish back onto the topic in the case
+	// that we cannot successfully communicate with the local service
+	// we're trying to expose.
 	//
 	//   503 -> Service Unavailable
 	//
@@ -141,7 +158,8 @@ Connection: close
 	//
 	// OK we have a default result saved, which shows an error-page.
 	//
-	// If we didn't actually get an error then save the real response.
+	// If we didn't actually get an error then make the actual request,
+	// and update with the response we receive.
 	//
 	if err == nil {
 
@@ -163,10 +181,15 @@ Connection: close
 	}
 
 	//
-	// Bump our stats - we keep track of the number of distinct times
-	// each HTTP statuscode has been seen.
+	// Now we have either received a real reply from the service
+	// we're exposing, or we've got the fake one we created above.
 	//
-	// This is grossly inefficient.
+	// Either way record the request/response, and the HTTP-status
+	// code we received.
+	//
+
+	//
+	// The response will have "HTTP/1.x CODE OK..\n"
 	//
 	tmp := strings.Split(result, " ")
 	if len(tmp) > 1 {
@@ -175,13 +198,9 @@ Connection: close
 	}
 
 	//
-	// Save the request away - but only the first line of the request
+	// Save the request away too.
 	//
-	tmp2 := strings.Split(req.Request, "\n")
-	if len(tmp2) > 1 {
-		// Only keep the first line.
-		req.Request = strings.Replace(tmp2[0], "\r", "", -1)
-	}
+	req.Request = result
 
 	//
 	// Save the response.
@@ -189,13 +208,13 @@ Connection: close
 	req.Response = result
 
 	//
-	// Record this.
+	// Add this request to our list of "recent requests".
 	//
 	p.requests = append(p.requests, req)
 
 	//
-	// Truncate the list of requests.  We'll keep the most recent
-	// five entries here.
+	// And truncate the list, so that we don't consume all our RAM
+	// keeping everything.
 	//
 	if len(p.requests) > 5 {
 
@@ -217,12 +236,16 @@ Connection: close
 // Execute is the entry-point to this sub-command.
 //
 // 1. Connect to the tunnel-host.
-//
 // 2. Subscribe to MQ and await the reception of URLs to fetch.
-//
 //    (When one is received it will be handled via onMessage.)
+// 3. Present our (read-only) GUI.
 //
 func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
+
+	//
+	// Record our launch-time.
+	//
+	start := time.Now()
 
 	//
 	// Ensure that we have setup variables
@@ -318,6 +341,15 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	p12.BorderStyle.Fg = ui.ColorYellow
 
 	//
+	// Page 1 - widget 3 - uptime
+	//
+	p13 := widgets.NewParagraph()
+	p13.Title = "Uptime"
+	p13.Text += "\n  00:00:00"
+	p13.SetRect(0, 18, termWidth, 23)
+	p13.BorderStyle.Fg = ui.ColorYellow
+
+	//
 	// Page 2 - widget 1 - response-codes
 	//
 	p21 := widgets.NewBarChart()
@@ -335,6 +367,50 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	p22.SetRect(0, (termHeight/2)+1, termWidth, termHeight-3)
 	p22.ColumnWidths = []int{20, 8, termWidth - 28}
 
+	//
+	// Show our "uptime"
+	//
+	updateInfo := func() {
+
+		const (
+			Decisecond = 100 * time.Millisecond
+			Day        = 24 * time.Hour
+		)
+		ts := time.Since(start)
+
+		sign := time.Duration(1)
+		if ts < 0 {
+			sign = -1
+			ts = -ts
+		}
+		ts += +Decisecond / 2
+		d := sign * (ts / Day)
+		ts = ts % Day
+		h := ts / time.Hour
+		ts = ts % time.Hour
+		m := ts / time.Minute
+		ts = ts % time.Minute
+		s := ts / time.Second
+		ts = ts % time.Second
+
+		if d > 0 {
+			if d == 1 {
+				p13.Text = fmt.Sprintf("%02d day %02d:%02d:%02d", d, h, m, s)
+			} else {
+
+				p13.Text = fmt.Sprintf("%02d days %02d:%02d:%02d", d, h, m, s)
+			}
+		} else {
+			p13.Text = fmt.Sprintf("%02d:%02d:%02d", h, m, s)
+		}
+
+		p13.Text = "\n  " + p13.Text
+		ui.Render(p13)
+	}
+
+	//
+	// Update the graph / table in the second page.
+	//
 	updateResponse := func() {
 		//
 		// We want to show all the distinct status-codes.
@@ -420,7 +496,7 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 			//
 			// First tab-pane has a pair of text-widgets.
 			//
-			ui.Render(p11, p12)
+			ui.Render(p11, p12, p13)
 		case 1:
 			//
 			// Second tab-pane has just a single widget.
@@ -432,7 +508,7 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	//
 	// Default to the first tab.
 	//
-	ui.Render(tabpane, p11, p12)
+	ui.Render(tabpane, p11, p12, p13)
 
 	//
 	// Ensure we can poll for events.
@@ -483,12 +559,21 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 		case <-ticker:
 
 			//
+			// If the tab-selected is our index-page
+			// then update our run-time
+			//
+			if tabpane.ActiveTabIndex == 0 {
+				updateInfo()
+			}
+
+			//
 			// If the tab-selected is the stats-page
 			// then update our table and graph.
 			//
 			if tabpane.ActiveTabIndex == 1 {
 				updateResponse()
 			}
+
 		}
 	}
 
