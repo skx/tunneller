@@ -6,12 +6,11 @@
 //
 // When a request comes in for the host "foo.tunnel.example.com"
 //
-//  1. we squirt the incoming request down the MQ topic clients/foo.
+//  1. We squirt the incoming request down the MQ topic clients/foo.
 //
 //  2. We then await a reply, for up to 10 seconds.
 //
 //       If we receive it great.
-//
 //       Otherwise we return an error.
 //
 
@@ -68,7 +67,7 @@ func (p *serveCmd) SetFlags(f *flag.FlagSet) {
 //
 // RemoteIP retrieves the remote IP address of the requesting HTTP-client.
 //
-// This is used for our redis-based rate-limiting.
+// This is sent to the client, for logging purposes.
 //
 func RemoteIP(request *http.Request) string {
 
@@ -102,9 +101,6 @@ func RemoteIP(request *http.Request) string {
 //
 // This function is invoked for all accesses.
 //
-// If a request is made for our public-key that is handled, otherwise we
-// defer to sending requests to connected clients via MQ.
-//
 func (p *serveCmd) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 
 	//
@@ -121,7 +117,7 @@ func (p *serveCmd) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	//
-	// Dump the request to plain-text
+	// Dump the request to plain-text.
 	//
 	requestDump, err := httputil.DumpRequest(r, true)
 	fmt.Printf("Sending request to remote name %s\n", host)
@@ -135,18 +131,32 @@ func (p *serveCmd) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	// This is the structure we'll send to the client.
 	//
 	var req Request
+
+	//
+	// The request itself.
+	//
 	req.Request = string(requestDump)
+
+	//
+	// The source-IP from which it was requested.
+	//
 	req.Source = RemoteIP(r)
 
 	//
-	// Now we need to turn that request into something we can pipe
-	// into a string.
+	// Convert the structure to a JSON message, so we can send it down
+	// the queue.
 	//
 	toSend, err := json.Marshal(req)
 
+	if err != nil {
+		fmt.Fprintf(w, "Error encoding the request as JSON: %s\n", err.Error())
+		fmt.Printf("Error encoding the request as JSON: %s\n", err.Error())
+		return
+	}
+
 	//
-	// Now we can publish the JSON object to the topic that we
-	// believe the client will be listening upon.
+	// Publish the JSON object to the topic that we believe the client
+	// will be listening upon.
 	//
 	token := p.mq.Publish("clients/"+host, 0, false, string(toSend))
 	token.Wait()
@@ -176,6 +186,10 @@ func (p *serveCmd) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	subToken.Wait()
+
+	//
+	// Did we get an error subscribing for the reply?
+	//
 	if subToken.Error() != nil {
 		fmt.Printf("Error subscribing to clients/%s - %s\n", host, subToken.Error())
 		fmt.Fprintf(w, "Error subscribing to clients/%s - %s\n", host, subToken.Error())
@@ -303,13 +317,11 @@ func (p *serveCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{})
 	// We want to make sure we handle timeouts effectively by using
 	// a non-default http-server
 	//
+	// NOTE: The timeouts are a little generous, considering our
+	// proxy to the client will timeout after 10 seconds..
+	//
 	srv := &http.Server{
-		Addr: bind,
-
-		//
-		// NOTE: These are a little generous, considering our
-		// proxy to the client will timeout after 10 seconds..
-		//
+		Addr:         bind,
 		ReadTimeout:  300 * time.Second,
 		WriteTimeout: 300 * time.Second,
 	}
@@ -319,8 +331,13 @@ func (p *serveCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{})
 	//
 	err := srv.ListenAndServe()
 	if err != nil {
-		fmt.Printf("\nError: %s\n", err.Error())
+		fmt.Printf("\nError launching our HTTP-server\n:%s\n",
+			err.Error())
+		return 1
 	}
 
+	//
+	// Not reached.
+	//
 	return 0
 }
