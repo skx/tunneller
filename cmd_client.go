@@ -182,6 +182,15 @@ Connection: close
 		// Only keep the first line.
 		req.Request = strings.Replace(tmp2[0], "\r", "", -1)
 	}
+
+	//
+	// Save the response.
+	//
+	req.Response = result
+
+	//
+	// Record this.
+	//
 	p.requests = append(p.requests, req)
 
 	//
@@ -320,11 +329,11 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	//
 	p22 := widgets.NewTable()
 	p22.Rows = [][]string{
-		[]string{"IP Address", "Request"},
+		[]string{"IP Address", "Status", "Request"},
 	}
 	p22.TextStyle = ui.NewStyle(ui.ColorWhite)
 	p22.SetRect(0, (termHeight/2)+1, termWidth, termHeight-3)
-	p22.ColumnWidths = []int{20, termWidth - 20 - 3}
+	p22.ColumnWidths = []int{20, 8, termWidth - 28}
 
 	updateResponse := func() {
 		//
@@ -364,9 +373,32 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 		// Now update the table.
 		//
 		var rows [][]string
-		rows = append(rows, []string{"IP Address", "Request"})
+		rows = append(rows, []string{"IP Address", "Status", "Request"})
 		for _, ent := range p.requests {
-			rows = append(rows, []string{ent.Source, ent.Request})
+
+			//
+			// The response is "HTTP XXX BLAH\n.."
+			//
+			// We only want the status-code.
+			//
+			// Save the first line in "tmp".
+			//
+			resLines := strings.Split(ent.Response, "\n")
+			tmp := "HTTP -1 OK"
+			if len(resLines) > 0 {
+				tmp = resLines[0]
+			}
+
+			//
+			// Get the second token
+			//
+			resToks := strings.Split(tmp, " ")
+			if len(resToks) > 0 {
+				tmp = resToks[1]
+			}
+
+			//
+			rows = append(rows, []string{ent.Source, tmp, ent.Request})
 		}
 		p22.Rows = rows
 		ui.Render(p22)

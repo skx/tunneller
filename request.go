@@ -25,4 +25,9 @@ type Request struct {
 	// Source contains the IP-address of the client which actually
 	// made the request.
 	Source string
+
+	// Response is the response the client sent.
+	// This is only available in the client, but it is exposed here
+	// because it does no harm.
+	Response string
 }
