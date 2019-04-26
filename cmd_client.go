@@ -198,11 +198,6 @@ Connection: close
 	}
 
 	//
-	// Save the request away too.
-	//
-	req.Request = result
-
-	//
 	// Save the response.
 	//
 	req.Response = result
@@ -474,7 +469,15 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 			}
 
 			//
-			rows = append(rows, []string{ent.Source, tmp, ent.Request})
+			// The request will be a multi-line thing.
+			//
+			request := ent.Request
+			reqRows := strings.Split(request, "\n")
+			if len(reqRows) > 0 {
+				request = reqRows[0]
+			}
+
+			rows = append(rows, []string{ent.Source, tmp, request})
 		}
 		p22.Rows = rows
 		ui.Render(p22)
