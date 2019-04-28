@@ -133,12 +133,12 @@ func (p *serveCmd) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	var req Request
 
 	//
-	// The request itself.
+	// Add the actual request.
 	//
 	req.Request = string(requestDump)
 
 	//
-	// The source-IP from which it was requested.
+	// Add the source-IP from which it was received.
 	//
 	req.Source = RemoteIP(r)
 

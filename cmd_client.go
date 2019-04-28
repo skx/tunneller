@@ -313,10 +313,6 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	termWidth, termHeight := ui.TerminalDimensions()
 
 	//
-	// This is the first page.
-	//
-	// * We show an overview.
-	//
 	// Page 1 - widget 1 - keyboard
 	//
 	p11 := widgets.NewParagraph()
@@ -497,12 +493,12 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 		switch tabpane.ActiveTabIndex {
 		case 0:
 			//
-			// First tab-pane has a pair of text-widgets.
+			// First tab-pane.
 			//
 			ui.Render(p11, p12, p13)
 		case 1:
 			//
-			// Second tab-pane has just a single widget.
+			// Second tab-pane.
 			//
 			ui.Render(p21, p22)
 		}
@@ -519,7 +515,7 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	uiEvents := ui.PollEvents()
 
 	//
-	// Also update our graph every half-second.
+	// Also update our dynamic entries every half-second.
 	//
 	ticker := time.NewTicker(500 * time.Millisecond).C
 
@@ -533,11 +529,13 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 
 			case "q", "<C-c>":
 				return 0
+
 			case "h", "<Left>", "<tab>":
 				tabpane.FocusLeft()
 				ui.Clear()
 				ui.Render(tabpane)
 				renderTab()
+
 			case "l", "<Right>":
 				tabpane.FocusRight()
 				ui.Clear()
@@ -559,6 +557,7 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 				ui.Render(tabpane)
 				renderTab()
 			}
+
 		case <-ticker:
 
 			//

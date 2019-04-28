@@ -40,7 +40,7 @@ func (p *versionCmd) SetFlags(f *flag.FlagSet) {
 }
 
 //
-// Show the version - using the "out"-writer.
+// Show the version.
 //
 func showVersion(verbose bool) {
 	fmt.Printf("%s\n", version)
