@@ -1,0 +1,13 @@
+on:
+  push:
+    branches:
+    - master
+name: Push Event
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    - name: Test
+      uses: skx/github-action-tester@master
