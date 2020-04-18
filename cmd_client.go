@@ -70,6 +70,10 @@ type clientCmd struct {
 	// The recent requests we've seen.
 	//
 	requests []Request
+
+	//
+	// The port to connect to MQ with
+	mqPort int
 }
 
 // Name returns the name of this sub-command.
@@ -91,6 +95,7 @@ func (p *clientCmd) SetFlags(f *flag.FlagSet) {
 	f.StringVar(&p.expose, "expose", "", "The host/port to expose to the internet.")
 	f.StringVar(&p.tunnel, "tunnel", "tunnel.steve.fi", "The address of the publicly visible tunnel-host")
 	f.StringVar(&p.name, "name", "", "The name for this connection")
+	f.IntVar(&p.mqPort, "mq-port", 1883, "The MQ port")
 }
 
 // onMessage is called when a message is received upon the MQ-topic we're
@@ -270,7 +275,7 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	//
 	// Setup the server-address.
 	//
-	opts := MQTT.NewClientOptions().AddBroker(fmt.Sprintf("tcp://%s:1883", p.tunnel))
+	opts := MQTT.NewClientOptions().AddBroker(fmt.Sprintf("tcp://%s:%d", p.tunnel, p.mqPort))
 
 	//
 	// Set our name.
