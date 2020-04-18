@@ -43,6 +43,9 @@ type serveCmd struct {
 
 	// the port we bind upon
 	bindPort int
+
+	// The port MQ listens upon
+	mqPort int
 }
 
 // Name returns the name of this sub-command.
@@ -61,6 +64,7 @@ func (p *serveCmd) Usage() string {
 // SetFlags configures the flags this sub-command accepts.
 func (p *serveCmd) SetFlags(f *flag.FlagSet) {
 	f.IntVar(&p.bindPort, "port", 8080, "The port to bind upon.")
+	f.IntVar(&p.mqPort, "mq-port", 1883, "The MQ port.")
 	f.StringVar(&p.bindHost, "host", "127.0.0.1", "The IP to listen upon.")
 }
 
@@ -294,7 +298,10 @@ func (p *serveCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{})
 	//
 	// Connect to our MQ instance.
 	//
-	opts := MQTT.NewClientOptions().AddBroker("tcp://localhost:1883")
+	mq := fmt.Sprintf("tcp://localhost:%d", p.mqPort)
+	fmt.Printf("Connecting to MQ %s\n", mq)
+
+	opts := MQTT.NewClientOptions().AddBroker(mq)
 	p.mq = MQTT.NewClient(opts)
 	if token := p.mq.Connect(); token.Wait() && token.Error() != nil {
 		fmt.Printf("Failed to connect to MQ-server: %s\n", token.Error())
