@@ -37,9 +37,7 @@ import (
 	uuid "github.com/satori/go.uuid"
 )
 
-//
 // clientCmd is the structure for this sub-command.
-//
 type clientCmd struct {
 
 	//
@@ -182,7 +180,7 @@ Connection: close
 		//
 		// Store the result in our string.
 		//
-		result = string(reply.Bytes())
+		result = reply.String()
 	}
 
 	//
@@ -232,14 +230,12 @@ Connection: close
 	token.Wait()
 }
 
-//
 // Execute is the entry-point to this sub-command.
 //
-// 1. Connect to the tunnel-host.
-// 2. Subscribe to MQ and await the reception of URLs to fetch.
-//    (When one is received it will be handled via onMessage.)
-// 3. Present our (read-only) GUI.
-//
+//  1. Connect to the tunnel-host.
+//  2. Subscribe to MQ and await the reception of URLs to fetch.
+//     (When one is received it will be handled via onMessage.)
+//  3. Present our (read-only) GUI.
 func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 
 	//
@@ -387,7 +383,6 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 		m := ts / time.Minute
 		ts = ts % time.Minute
 		s := ts / time.Second
-		ts = ts % time.Second
 
 		if d > 0 {
 			if d == 1 {
@@ -587,5 +582,5 @@ func (p *clientCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 	//
 	// Not reached.
 	//
-	return 0
+	// return 0
 }
